@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TruthKeeper — Rot Report</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🛡️</span>
+      <div>
+        <h1>TruthKeeper</h1>
+        <p class="tagline">The AI that doesn't trust your docs — and proves which ones are wrong.</p>
+      </div>
+    </div>
+    <div class="actions">
+      <span id="cache-badge" class="cache-badge" hidden>showing cached audit</span>
+      <button id="run-audit" class="btn">Run Audit</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="summary" id="summary"></section>
+    <section id="report" class="report">
+      <div class="loading" id="loading">Loading Rot Report…</div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    Backed by Cloud Run + Firestore + Gemini · cache-first · $0 target
+  </footer>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

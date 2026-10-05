@@ -1,0 +1,28 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+service-account*.json
+
+# Node / frontend
+node_modules/
+
+# Firebase
+.firebase/
+firebase-debug.log
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Python venv
+.venv/
+venv/
