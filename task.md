@@ -4,6 +4,13 @@
 > run its **Acceptance check** and only continue if it passes. Follow the rules in
 > `.github/copilot-instructions.md` (Google/GCP only, cache-first, $0, no secrets in git).
 
+> **Progress (2026-10-05):**
+> - ✅ **Phase 1–2 complete & verified** (scaffold + seed corpus parses, 15 docs).
+> - 🧩 **Phase 3–5, 7 code-complete** — written and compile-clean; acceptance
+>   checks still need live GCP creds (Vertex/Firestore) or a running server.
+> - ⬜ **Phase 0, 6, 8–9 pending** — need the GCP project, deploys, and demo assets.
+> - 📦 Repo live: https://github.com/mehwish786jnc/TruthKeeper
+
 ## Global definition of done
 - [ ] Deployed on GCP: Cloud Run backend + Firebase Hosting frontend, publicly reachable.
 - [ ] Auditing works end-to-end using Gemini, results cached in Firestore.
@@ -19,57 +26,60 @@
       `gcloud services enable run.googleapis.com aiplatform.googleapis.com firestore.googleapis.com cloudbuild.googleapis.com secretmanager.googleapis.com`
 - [ ] Create Firestore in **Native mode** (region `us-central1`).
 - [ ] Set a billing **budget alert at $5**.
-- [ ] Create `.env.example` with: `GCP_PROJECT`, `GCP_LOCATION=us-central1`,
+- [x] Create `.env.example` with: `GCP_PROJECT`, `GCP_LOCATION=us-central1`,
       `GEMINI_API_KEY` (AI Studio free-tier key for fallback).
-- [ ] Add `.gitignore` excluding `.env`, `*.key`, `__pycache__/`, `node_modules/`.
+- [x] Add `.gitignore` excluding `.env`, `*.key`, `__pycache__/`, `node_modules/`.
 - **Acceptance:** `gcloud firestore databases list` shows a database; `.env` is gitignored.
 
-## Phase 1 — Repo scaffold
-- [ ] Create structure:
+## Phase 1 — Repo scaffold ✅
+- [x] Create structure:
       `backend/{main.py,audit.py,models.py,store.py,requirements.txt,Dockerfile,seed/}`
       `frontend/{index.html,app.js}`, `firebase.json`, `README.md`.
-- [ ] `backend/requirements.txt`:
+- [x] `backend/requirements.txt`:
       `fastapi`, `uvicorn`, `google-genai`, `google-cloud-firestore`, `pydantic`.
 - **Acceptance:** `pip install -r backend/requirements.txt` succeeds in a venv.
+      _(not yet run in a venv locally)_
 
-## Phase 2 — Seed corpus (the demo data)
-- [ ] Add `backend/seed/corpus.json` — 15 docs with planted findings:
+## Phase 2 — Seed corpus (the demo data) ✅
+- [x] Add `backend/seed/corpus.json` — 15 docs with planted findings:
       1 contradiction pair (deploy.sh/Heroku vs GitHub Actions/Cloud Run),
       1 password-policy contradiction (90-day rotation vs no-rotation),
       1 deprecated (Stackdriver/Nagios), 2 stale (2021 VPN, 2021 DB backup),
       rest healthy.
-- [ ] Add `backend/seed/EXPECTED_FINDINGS.md` (ground truth, NOT fed to the model).
+- [x] Add `backend/seed/EXPECTED_FINDINGS.md` (ground truth, NOT fed to the model).
 - **Acceptance:** `corpus.json` parses and has 15 entries with
-      `id,title,source,last_updated,body`.
+      `id,title,source,last_updated,body`. ✅ **verified**
 
-## Phase 3 — Model layer (`models.py`)
-- [ ] Implement Google-only clients: Vertex (Flash/Pro) + AI Studio key (free) + Gemma.
-- [ ] `call_model()` returns JSON text; raise `QuotaError` on 429, `ModelError` otherwise.
-- [ ] Model names read from env, pinned (e.g. `gemini-2.5-flash`, `gemini-2.5-pro`, `gemma-3-27b-it`).
+## Phase 3 — Model layer (`models.py`) 🧩
+- [x] Implement Google-only clients: Vertex (Flash/Pro) + AI Studio key (free) + Gemma.
+- [x] `call_model()` returns JSON text; raise `QuotaError` on 429, `ModelError` otherwise.
+- [x] Model names read from env, pinned (e.g. `gemini-2.5-flash`, `gemini-2.5-pro`, `gemma-3-27b-it`).
 - **Acceptance:** a throwaway script calls Flash on Vertex and gets valid JSON back.
+      _(pending live GCP creds)_
 
-## Phase 4 — Audit engine (`audit.py` + `store.py`)
-- [ ] `store.py`: `get_audit(doc_id)` / `save_audit(doc_id, payload)` on Firestore.
-- [ ] `audit.py`: Pydantic `AuditResult`, `build_prompt`, cache-first `audit_document`,
+## Phase 4 — Audit engine (`audit.py` + `store.py`) 🧩
+- [x] `store.py`: `get_audit(doc_id)` / `save_audit(doc_id, payload)` on Firestore.
+- [x] `audit.py`: Pydantic `AuditResult`, `build_prompt`, cache-first `audit_document`,
       `audit_corpus`, and the routing ladder:
       Flash → escalate to Pro if `confidence<0.55` or `uncertain` → free/Gemma on quota
       → heuristic floor.
-- [ ] Heuristic fallback flags deprecated terms + docs older than 2 years.
+- [x] Heuristic fallback flags deprecated terms + docs older than 2 years.
 - **Acceptance:** `python backend/smoke_test.py` flags `deployment-guide` as
       **contradictory** vs `cicd-pipeline`, and the result is cached in Firestore.
+      _(pending live GCP creds)_
 
-## Phase 5 — API (`main.py`, Cloud Run)
-- [ ] FastAPI endpoints:
+## Phase 5 — API (`main.py`, Cloud Run) 🧩
+- [x] FastAPI endpoints:
       `POST /audit` → loads corpus, runs `audit_corpus`, caches, returns summary.
       `GET /report` → returns all cached audits (sorted: lowest confidence first).
-      `GET /healthz` → `{"ok": true}`.
-- [ ] Load `seed/corpus.json` on startup; serve corpus docs for the UI.
-- [ ] Enable permissive CORS for the Firebase Hosting origin.
-- [ ] `Dockerfile` (python:3.11-slim, uvicorn on `$PORT`).
+      `GET /healthz` → `{"ok": true}`. _(+ `GET /docs-list` for the UI)_
+- [x] Load `seed/corpus.json` on startup; serve corpus docs for the UI.
+- [x] Enable permissive CORS for the Firebase Hosting origin.
+- [x] `Dockerfile` (python:3.11-slim, uvicorn on `$PORT`).
 - **Acceptance:** `uvicorn main:app` locally → `POST /audit` then `GET /report`
-      returns the ranked report JSON.
+      returns the ranked report JSON. _(pending local run w/ creds)_
 
-## Phase 6 — Deploy backend to Cloud Run
+## Phase 6 — Deploy backend to Cloud Run ⬜
 - [ ] `gcloud run deploy truthkeeper-api --source backend --region us-central1 \
         --allow-unauthenticated --min-instances=0 --max-instances=2 \
         --set-env-vars GCP_PROJECT=...,GCP_LOCATION=us-central1`
@@ -77,33 +87,38 @@
 - [ ] Grant the Cloud Run service account Vertex AI User + Firestore roles.
 - **Acceptance:** `curl https://<cloud-run-url>/report` returns JSON from the cloud.
 
-## Phase 7 — Frontend (Firebase Hosting)
-- [ ] `frontend/index.html` + `app.js`: a clean Rot Report dashboard that calls
-      the Cloud Run `GET /report`.
-- [ ] For each doc: title, confidence score (color-coded), status badge,
+## Phase 7 — Frontend (Firebase Hosting) 🧩
+- [x] `frontend/index.html` + `app.js`: a clean Rot Report dashboard that calls
+      the Cloud Run `GET /report`. _(+ `styles.css`, `config.js`)_
+- [x] For each doc: title, confidence score (color-coded), status badge,
       contradictions with cited evidence, suggested fix. Sort worst-first.
-- [ ] A "Run Audit" button hitting `POST /audit` (nice-to-have; report must render
+- [x] A "Run Audit" button hitting `POST /audit` (nice-to-have; report must render
       from cache without it).
 - [ ] `firebase init hosting` + `firebase deploy --only hosting`.
 - **Acceptance:** public Firebase URL shows the Rot Report; open it in **incognito**
       (logged-out) and it still works.
 
-## Phase 8 — Evaluation-proofing
+## Phase 8 — Evaluation-proofing ⬜
 - [ ] Pre-run `POST /audit` so Firestore is fully populated before the demo.
-- [ ] Add graceful "showing cached audit" state; never show a crash/empty screen.
+- [x] Add graceful "showing cached audit" state; never show a crash/empty screen.
+      _(cache badge + error state in `app.js`)_
 - [ ] Confirm the routing ladder degrades cleanly (simulate quota by unsetting the key).
 - [ ] Verify cold-start loads acceptably; add a frontend loading state.
-- [ ] README: architecture, how Firebase/Firestore/Cloud Run/Gemini are used,
-      local run + deploy steps, and the live URLs.
+      _(loading state present; cold-start not yet measured)_
+- [x] README: architecture, how Firebase/Firestore/Cloud Run/Gemini are used,
+      local run + deploy steps, and the live URLs. _(URLs still TBD)_
 - **Acceptance:** fresh incognito visit renders the full report in < 3s with no errors.
 
-## Phase 9 — Submission assets
+## Phase 9 — Submission assets ⬜
 - [ ] Record a **≤4:00** demo video against the **live** URL:
       problem → upload/seed → run audit → Rot Report → the "aha"
       (`deployment-guide` flagged only because it contradicts `cicd-pipeline`).
+      _(script drafted in `docs/demo-script.md`)_
 - [ ] Write the brief description naming Firebase, Firestore, Cloud Run, Gemini.
-- [ ] Push public GitHub repo (verify NO secrets in history).
-- [ ] Fill the pitch deck (prescribed template).
+      _(notes in `docs/pitch-deck-notes.md`)_
+- [x] Push public GitHub repo (verify NO secrets in history).
+      ✅ https://github.com/mehwish786jnc/TruthKeeper
+- [ ] Fill the pitch deck (prescribed template). _(notes drafted)_
 - **Acceptance:** all 4 mandatory deliverables ready; live URL confirmed working.
 
 ---
