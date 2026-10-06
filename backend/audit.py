@@ -25,8 +25,8 @@ ESCALATION_THRESHOLD = 0.55
 Status = Literal["healthy", "stale", "contradictory", "deprecated", "uncertain"]
 
 DEPRECATED_TERMS = [
-    "stackdriver", "nagios", "python 2", "python2", "heroku",
-    "angular.js", "angularjs", "flash player", "centos 6",
+    "stackdriver", "nagios", "heroku", "anyconnect", "mysqldump",
+    "jenkins", "on-prem nas", "flash player", "python 2", "angularjs",
 ]
 
 

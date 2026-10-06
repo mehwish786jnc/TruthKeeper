@@ -4,35 +4,112 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TruthKeeper — Rot Report</title>
+  <meta name="description" content="The AI that doesn't trust your documents — and proves which ones are wrong." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="topbar">
+  <!-- Animated background: drifting aurora blobs + constellation canvas + grain -->
+  <div class="bg" aria-hidden="true">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+    <div class="grid-lines"></div>
+    <canvas id="constellation"></canvas>
+    <div class="grain"></div>
+  </div>
+
+  <!-- Radar scanning overlay (shown while auditing) -->
+  <div class="scan-overlay" id="scan-overlay" aria-hidden="true">
+    <div class="radar">
+      <div class="radar-sweep"></div>
+      <div class="radar-ring r1"></div>
+      <div class="radar-ring r2"></div>
+      <div class="radar-ring r3"></div>
+      <div class="radar-core"></div>
+    </div>
+    <div class="scan-text">
+      <span class="scan-title">Interrogating knowledge base</span>
+      <span class="scan-sub" id="scan-sub">booting auditor…</span>
+    </div>
+  </div>
+
+  <header class="nav">
     <div class="brand">
-      <span class="logo">🛡️</span>
-      <div>
-        <h1>TruthKeeper</h1>
-        <p class="tagline">The AI that doesn't trust your docs — and proves which ones are wrong.</p>
+      <span class="logo">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2 4 5v6c0 5 3.5 8 8 11 4.5-3 8-6 8-11V5l-8-3Z"/>
+          <path d="m9 12 2 2 4-4"/>
+        </svg>
+      </span>
+      <div class="brand-text">
+        <span class="brand-name">TruthKeeper</span>
+        <span class="brand-kicker">AI Knowledge Auditor</span>
       </div>
     </div>
-    <div class="actions">
-      <span id="cache-badge" class="cache-badge" hidden>showing cached audit</span>
-      <button id="run-audit" class="btn">Run Audit</button>
+    <div class="nav-actions">
+      <span id="data-badge" class="pill pill-ghost" hidden></span>
+      <a href="#dashboard" class="nav-link">Rot Report</a>
+      <button id="run-audit" class="btn btn-primary magnetic">
+        <span class="btn-glow"></span>
+        <span class="btn-label">Run Audit</span>
+      </button>
     </div>
   </header>
 
   <main>
-    <section class="summary" id="summary"></section>
-    <section id="report" class="report">
-      <div class="loading" id="loading">Loading Rot Report…</div>
+    <!-- HERO -->
+    <section class="hero">
+      <div class="hero-badge reveal">
+        <span class="dot"></span> Live · cache-first · $0
+      </div>
+      <h1 class="hero-title">
+        <span class="line" data-text="Everyone built AI to">Everyone built AI to</span>
+        <span class="line" data-text="answer from your docs.">answer from your docs.</span>
+        <span class="line grad" data-text="We built the one that doesn't trust them.">We built the one that doesn't trust them.</span>
+      </h1>
+      <p class="hero-sub reveal">
+        TruthKeeper <em>interrogates</em> your knowledge base — surfacing contradictions,
+        stale pages, and deprecated references that keyword search never catches,
+        with cited evidence and a confidence score for every finding.
+      </p>
+      <div class="hero-cta reveal">
+        <button class="btn btn-primary magnetic" id="hero-audit">
+          <span class="btn-glow"></span>
+          <span class="btn-label">▶ Run the Audit</span>
+        </button>
+        <a href="#dashboard" class="btn btn-ghost">See the Rot Report ↓</a>
+      </div>
+
+      <div class="hero-scrim reveal" id="hero-stats"></div>
+    </section>
+
+    <!-- DASHBOARD -->
+    <section class="dashboard" id="dashboard">
+      <div class="section-head reveal">
+        <h2>The Rot Report</h2>
+        <p>Ranked worst-first. Every flag carries cited evidence.</p>
+      </div>
+
+      <div class="summary" id="summary" aria-live="polite"></div>
+
+      <div class="filters" id="filters" role="tablist" aria-label="Filter by status"></div>
+
+      <div class="report grid" id="report">
+        <div class="loading" id="loading">
+          <span class="spinner"></span> Loading Rot Report…
+        </div>
+      </div>
     </section>
   </main>
 
   <footer class="foot">
-    Backed by Cloud Run + Firestore + Gemini · cache-first · $0 target
+    <span>Backed by <b>Cloud Run</b> · <b>Firestore</b> · <b>Gemini</b></span>
+    <span class="foot-dim">cache-first · zero live model calls at render · $0 target</span>
   </footer>
 
   <script src="config.js"></script>
+  <script src="sample-data.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

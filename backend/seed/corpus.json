@@ -1,107 +1,107 @@
 [
   {
     "id": "deployment-guide",
-    "title": "Service Deployment Guide",
+    "title": "How to Deploy the Northwind API",
     "source": "wiki/engineering/deployment-guide",
-    "last_updated": "2024-03-12",
-    "body": "To deploy the API service, run ./deploy.sh from the project root. This pushes the app to Heroku using the Heroku Git remote. All production deploys go through Heroku dynos. Deploys are triggered manually by an engineer from their laptop; there is no automated pipeline. Roll back with `heroku rollback`."
+    "last_updated": "2022-03-14",
+    "body": "To deploy the Northwind API, run ./deploy.sh from the repo root. This script builds the app and pushes it directly to our Heroku dynos. Make sure you have the Heroku CLI installed and are logged in. Deployments typically take 3-4 minutes. If a deploy fails, re-run the script; it is idempotent."
   },
   {
     "id": "cicd-pipeline",
-    "title": "CI/CD Pipeline Overview",
+    "title": "CI/CD Pipeline Standards",
     "source": "wiki/engineering/cicd-pipeline",
-    "last_updated": "2025-08-20",
-    "body": "All deployments are fully automated through GitHub Actions. On merge to main, the workflow builds a container and deploys it to Google Cloud Run in us-central1. Manual deploys from a developer machine are not permitted. Rollbacks are handled by re-triggering the previous successful workflow run. There is no Heroku in our stack."
-  },
-  {
-    "id": "password-policy",
-    "title": "Corporate Password Policy",
-    "source": "wiki/security/password-policy",
-    "last_updated": "2025-01-15",
-    "body": "All employees must rotate their passwords every 90 days. Passwords must be at least 12 characters and include a mix of letters, numbers, and symbols. Reuse of the previous 5 passwords is prohibited. Failure to rotate within the window results in account lockout."
-  },
-  {
-    "id": "security-handbook",
-    "title": "Security Handbook — Authentication",
-    "source": "wiki/security/handbook-auth",
-    "last_updated": "2025-06-30",
-    "body": "In line with current NIST guidance, we no longer force periodic password rotation. Passwords should only be changed when there is evidence of compromise. We require a 14-character minimum and strongly encourage passphrases and a password manager. Mandatory periodic rotation is explicitly discouraged as it leads to weaker passwords."
+    "last_updated": "2026-08-30",
+    "body": "All deployments go through GitHub Actions. On merge to main, the workflow builds a container and deploys it to Cloud Run automatically. Manual deployment is forbidden: the legacy deploy.sh script was removed in 2025 and must never be used. Rollbacks are handled by redeploying a previous Cloud Run revision from the console."
   },
   {
     "id": "monitoring-setup",
-    "title": "Monitoring & Alerting Setup",
-    "source": "wiki/ops/monitoring-setup",
-    "last_updated": "2023-11-02",
-    "body": "Infrastructure monitoring is configured through Google Stackdriver. Host-level checks run via Nagios on the ops VM. Alerts are routed to the ops pager rotation. To add a new check, edit the Nagios config and restart the nagios service, then confirm the metric appears in the Stackdriver dashboard."
+    "title": "Monitoring and Alerting Setup",
+    "source": "wiki/sre/monitoring-setup",
+    "last_updated": "2023-01-20",
+    "body": "We monitor all services using Stackdriver. Dashboards live in the Stackdriver console. Host-level checks run on the Nagios box at nagios.corp.internal; ping the SRE team if you need an account. Alerts are routed to the #alerts channel. For custom metrics, export to Stackdriver Monitoring via the agent."
   },
   {
     "id": "vpn-access",
-    "title": "VPN Access Instructions",
+    "title": "Connecting to the Corporate VPN",
     "source": "wiki/it/vpn-access",
-    "last_updated": "2021-04-18",
-    "body": "To access internal systems remotely, install the Cisco AnyConnect client and connect to vpn.corp.example.com. Request access by filing a ticket with IT. All internal tools require the VPN. These instructions were last validated for the 2021 office network layout."
+    "last_updated": "2021-03-02",
+    "body": "To access internal systems from home, connect using Cisco AnyConnect to vpn.oldcorp.net. Use your LDAP credentials. If you cannot connect, clear the AnyConnect cache and retry. The VPN is required for accessing the internal Jenkins server and the staging database."
   },
   {
-    "id": "db-backup",
-    "title": "Database Backup Procedure",
-    "source": "wiki/ops/db-backup",
-    "last_updated": "2021-09-09",
-    "body": "Nightly backups of the PostgreSQL 11 primary are taken via pg_dump and uploaded to an on-prem NAS at 02:00. Retention is 14 days. To restore, copy the dump from the NAS and run pg_restore. Backups are verified manually once a quarter by the DBA."
+    "id": "password-policy",
+    "title": "Password Policy",
+    "source": "wiki/security/password-policy",
+    "last_updated": "2022-06-11",
+    "body": "All employees must rotate their account passwords every 90 days. Passwords must be at least 10 characters and include a number and a symbol. Reusing any of your last 5 passwords is not allowed. Failure to rotate within the window will lock your account until IT resets it."
   },
   {
-    "id": "onboarding",
-    "title": "New Engineer Onboarding",
-    "source": "wiki/people/onboarding",
-    "last_updated": "2025-07-01",
-    "body": "Welcome! On day one, get your Google Workspace account, request access to the GitHub org, and clone the main monorepo. Pair with your onboarding buddy to deploy a trivial change through the standard pipeline. Read the engineering handbook and the security handbook before your first week ends."
+    "id": "security-standards-2025",
+    "title": "Updated Security Standards (2025)",
+    "source": "wiki/security/security-standards-2025",
+    "last_updated": "2026-02-18",
+    "body": "Following the updated NIST SP 800-63B guidance, Northwind no longer enforces periodic password rotation. Users are required to change a password only when there is evidence of compromise. We now require passwords of at least 14 characters and strongly encourage passphrases and a hardware second factor. Forced expiry has been disabled in the identity provider."
   },
   {
-    "id": "api-style-guide",
-    "title": "REST API Style Guide",
-    "source": "wiki/engineering/api-style-guide",
-    "last_updated": "2025-05-14",
-    "body": "Use plural nouns for collection endpoints (/users, /orders). Return JSON with snake_case keys. Use standard HTTP status codes. Version the API via the URL prefix (/v1). All endpoints must be documented in the OpenAPI spec before merge."
+    "id": "onboarding-checklist",
+    "title": "New Engineer Onboarding Checklist",
+    "source": "wiki/people/onboarding-checklist",
+    "last_updated": "2026-07-05",
+    "body": "Week 1: get your laptop imaged, enable SSO and your second factor, request access to the engineering GitHub org, and read the architecture overview. Week 2: pick up a starter task labelled good-first-issue, pair with your onboarding buddy, and deploy a small change end to end. Ask questions in #eng-help."
   },
   {
-    "id": "incident-response",
-    "title": "Incident Response Runbook",
-    "source": "wiki/ops/incident-response",
-    "last_updated": "2025-09-10",
-    "body": "When an incident is declared, the on-call engineer becomes incident commander. Open an incident channel, post status updates every 30 minutes, and page the service owner. After resolution, write a blameless postmortem within 3 business days and track action items to completion."
+    "id": "expense-policy",
+    "title": "Travel and Expense Policy",
+    "source": "wiki/finance/expense-policy",
+    "last_updated": "2026-05-22",
+    "body": "Meals during business travel are reimbursable up to 60 USD per day. Flights should be booked in economy class. Client dinners require manager approval above 150 USD per head. Submit receipts within 30 days through the expense portal. Personal expenses are never reimbursable."
+  },
+  {
+    "id": "oncall-runbook",
+    "title": "On-Call Runbook",
+    "source": "wiki/sre/oncall-runbook",
+    "last_updated": "2026-09-12",
+    "body": "The on-call engineer owns the pager for one week. Acknowledge pages within 5 minutes. For a production outage, open an incident channel, assign an incident commander, and post status updates every 30 minutes. Use the incident severity guide to classify the impact. Escalate to the secondary on-call if unacknowledged after 15 minutes."
+  },
+  {
+    "id": "api-auth-guide",
+    "title": "API Authentication Guide",
+    "source": "wiki/engineering/api-auth-guide",
+    "last_updated": "2026-06-01",
+    "body": "External clients authenticate using OAuth 2.0 client credentials. Request a client ID and secret from the developer portal. Access tokens expire after one hour; refresh using the token endpoint. Never embed secrets in frontend code. All API traffic must use TLS 1.2 or higher."
   },
   {
     "id": "data-retention",
     "title": "Data Retention Policy",
     "source": "wiki/legal/data-retention",
-    "last_updated": "2025-02-28",
-    "body": "Customer records are retained for 7 years after account closure to meet regulatory requirements. Application logs are retained for 90 days. Backups are retained for 30 days. Deletion requests are honored within 30 days unless a legal hold applies."
+    "last_updated": "2026-04-10",
+    "body": "Customer transaction records are retained for 7 years to meet regulatory requirements. Application logs are retained for 90 days. Personal data deletion requests are processed within 30 days. Backups older than their retention window are purged automatically each month."
   },
   {
-    "id": "code-review",
+    "id": "code-review-guidelines",
     "title": "Code Review Guidelines",
-    "source": "wiki/engineering/code-review",
-    "last_updated": "2025-04-22",
-    "body": "Every change requires at least one approving review before merge. Reviews should focus on correctness, readability, and tests. Keep PRs under 400 lines where possible. Authors must respond to all comments. CI must be green before merge."
+    "source": "wiki/engineering/code-review-guidelines",
+    "last_updated": "2026-08-01",
+    "body": "Every pull request needs at least one approval before merge. Keep PRs under 400 lines where possible. Reviewers should respond within one business day. Focus review on correctness, tests, and readability. CI must be green before merge; do not bypass required checks."
   },
   {
-    "id": "oncall-rotation",
-    "title": "On-Call Rotation Policy",
-    "source": "wiki/ops/oncall-rotation",
-    "last_updated": "2025-08-05",
-    "body": "The on-call rotation is weekly, handing off every Monday at 10:00. Primary and secondary on-call are assigned via the scheduling tool. Compensation for on-call is provided per the HR policy. During an incident, follow the incident response runbook."
+    "id": "incident-severity",
+    "title": "Incident Severity Guide",
+    "source": "wiki/sre/incident-severity",
+    "last_updated": "2026-03-28",
+    "body": "SEV1: full outage or data loss affecting most customers; page immediately. SEV2: major feature broken or significant degradation. SEV3: minor issue with a workaround. Classify at the start of an incident and adjust as you learn more. SEV1 and SEV2 require a written postmortem within five business days."
   },
   {
-    "id": "expense-policy",
-    "title": "Travel & Expense Policy",
-    "source": "wiki/finance/expense-policy",
-    "last_updated": "2025-03-19",
-    "body": "Submit expenses within 30 days of the transaction. Meals are reimbursed up to the daily per-diem. Flights should be booked in economy unless the flight exceeds 6 hours. Receipts are required for any expense over $25. Manager approval is required before travel."
+    "id": "remote-work-policy",
+    "title": "Remote Work Policy",
+    "source": "wiki/people/remote-work-policy",
+    "last_updated": "2026-01-15",
+    "body": "Employees may work remotely up to three days per week. Core collaboration hours are 10:00 to 15:00 local time. Ensure a reliable internet connection for meetings. Equipment stipends are available once per year. Coordinate in-office days with your team to maximize overlap."
   },
   {
-    "id": "release-notes-process",
-    "title": "Release Notes Process",
-    "source": "wiki/engineering/release-notes",
-    "last_updated": "2025-06-11",
-    "body": "Each release must ship with user-facing release notes. Notes are drafted from merged PR titles labeled 'user-facing' and reviewed by product before publishing. Internal-only changes are omitted. Release notes are published to the status page on deploy."
+    "id": "database-backup",
+    "title": "Database Backup Procedure",
+    "source": "wiki/sre/database-backup",
+    "last_updated": "2021-11-09",
+    "body": "A nightly cron job runs mysqldump against the primary database and copies the archive to the on-prem NAS at nas.corp.internal. Verify the backup size each morning. To restore, copy the dump from the NAS and pipe it into the mysql client on the standby host."
   }
 ]
