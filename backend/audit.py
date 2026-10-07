@@ -17,6 +17,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
+import context
 import store
 from models import Layer, ModelError, QuotaError, call_model
 
@@ -55,9 +56,18 @@ class AuditResult(BaseModel):
 # Prompt
 # --------------------------------------------------------------------------- #
 def build_prompt(doc: dict[str, Any], corpus: list[dict[str, Any]]) -> str:
-    """Build the auditing prompt: the target doc + the rest of the corpus."""
-    others = [d for d in corpus if d["id"] != doc["id"]]
-    context = "\n\n".join(
+    """Build the auditing prompt: the target doc + the rest of the corpus.
+
+    Smart Context Optimization: for large corpora, send only the most relevant
+    (and non-duplicate) other documents instead of the entire knowledge base,
+    cutting Gemini tokens while preserving the docs likely to confirm/contradict.
+    Small corpora (the demo) keep full context so cross-doc detection is exhaustive.
+    """
+    if len(corpus) > 20:
+        others = context.select_relevant(doc, corpus, max_docs=12)
+    else:
+        others = [d for d in corpus if d["id"] != doc["id"]]
+    rest_of_corpus = "\n\n".join(
         f"[{d['id']}] {d['title']} (updated {d.get('last_updated', '?')})\n{d['body']}"
         for d in others
     )
@@ -80,7 +90,7 @@ TARGET DOCUMENT [{doc['id']}] {doc['title']} (updated {doc.get('last_updated', '
 {doc['body']}
 
 REST OF CORPUS:
-{context}
+{rest_of_corpus}
 """
 
 

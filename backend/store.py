@@ -14,6 +14,7 @@ from typing import Any
 from google.cloud import firestore
 
 AUDITS_COLLECTION = "audits"
+DECISIONS_COLLECTION = "decisions"
 
 
 @lru_cache(maxsize=1)
@@ -35,3 +36,16 @@ def save_audit(doc_id: str, payload: dict[str, Any]) -> None:
 def get_all_audits() -> list[dict[str, Any]]:
     """Return every cached audit. Used by GET /report."""
     return [snap.to_dict() for snap in _db().collection(AUDITS_COLLECTION).stream()]
+
+
+def save_decision(doc_id: str, payload: dict[str, Any]) -> None:
+    """Persist a human decision (accept/dismiss a fix) for a document."""
+    _db().collection(DECISIONS_COLLECTION).document(doc_id).set(payload)
+
+
+def get_all_decisions() -> dict[str, Any]:
+    """Return all decisions keyed by doc_id. Used to annotate /report."""
+    out: dict[str, Any] = {}
+    for snap in _db().collection(DECISIONS_COLLECTION).stream():
+        out[snap.id] = snap.to_dict()
+    return out

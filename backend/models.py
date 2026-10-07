@@ -91,3 +91,25 @@ def call_model(layer: Layer, prompt: str, *, use_studio: bool = False) -> str:
         if _is_quota_error(exc):
             raise QuotaError(str(exc)) from exc
         raise ModelError(str(exc)) from exc
+
+
+def call_text(layer: Layer, prompt: str, *, use_studio: bool = False) -> str:
+    """Call a Google model for plain-text (non-JSON) output.
+
+    Used by research/remediation enhancement. Same error normalization as
+    ``call_model``; callers treat any failure as "fall back to heuristic".
+    """
+    try:
+        client = _studio_client() if (use_studio or layer == Layer.GEMMA) else _vertex_client()
+        response = client.models.generate_content(
+            model=_model_name(layer),
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=0.2),
+        )
+        return (response.text or "").strip()
+    except (QuotaError, ModelError):
+        raise
+    except Exception as exc:  # noqa: BLE001 - normalize SDK/transport errors
+        if _is_quota_error(exc):
+            raise QuotaError(str(exc)) from exc
+        raise ModelError(str(exc)) from exc

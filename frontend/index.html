@@ -3,13 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TruthKeeper — Rot Report</title>
-  <meta name="description" content="The AI that doesn't trust your documents — and proves which ones are wrong." />
+  <title>TruthKeeper</title>
+  <meta name="description" content="The AI that audits your knowledge before it misleads you." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Syncopate:wght@400;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <!-- Animated background: drifting aurora blobs + constellation canvas + grain -->
+  <!-- Animated galaxy background (pure canvas, no dependencies) -->
   <div class="bg" aria-hidden="true">
     <div class="blob blob-1"></div>
     <div class="blob blob-2"></div>
@@ -19,13 +21,11 @@
     <div class="grain"></div>
   </div>
 
-  <!-- Radar scanning overlay (shown while auditing) -->
+  <!-- Radar scanning overlay -->
   <div class="scan-overlay" id="scan-overlay" aria-hidden="true">
     <div class="radar">
       <div class="radar-sweep"></div>
-      <div class="radar-ring r1"></div>
-      <div class="radar-ring r2"></div>
-      <div class="radar-ring r3"></div>
+      <div class="radar-ring r1"></div><div class="radar-ring r2"></div><div class="radar-ring r3"></div>
       <div class="radar-core"></div>
     </div>
     <div class="scan-text">
@@ -34,79 +34,109 @@
     </div>
   </div>
 
-  <header class="nav">
-    <div class="brand">
-      <span class="logo">
-        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2 4 5v6c0 5 3.5 8 8 11 4.5-3 8-6 8-11V5l-8-3Z"/>
-          <path d="m9 12 2 2 4-4"/>
-        </svg>
-      </span>
-      <div class="brand-text">
-        <span class="brand-name">TruthKeeper</span>
-        <span class="brand-kicker">AI Knowledge Auditor</span>
-      </div>
-    </div>
-    <div class="nav-actions">
-      <span id="data-badge" class="pill pill-ghost" hidden></span>
-      <a href="#dashboard" class="nav-link">Rot Report</a>
-      <button id="run-audit" class="btn btn-primary magnetic">
-        <span class="btn-glow"></span>
-        <span class="btn-label">Run Audit</span>
-      </button>
-    </div>
-  </header>
-
-  <main>
-    <!-- HERO -->
-    <section class="hero">
-      <div class="hero-badge reveal">
-        <span class="dot"></span> Live · cache-first · $0
-      </div>
-      <h1 class="hero-title">
-        <span class="line" data-text="Everyone built AI to">Everyone built AI to</span>
-        <span class="line" data-text="answer from your docs.">answer from your docs.</span>
-        <span class="line grad" data-text="We built the one that doesn't trust them.">We built the one that doesn't trust them.</span>
-      </h1>
-      <p class="hero-sub reveal">
-        TruthKeeper <em>interrogates</em> your knowledge base — surfacing contradictions,
-        stale pages, and deprecated references that keyword search never catches,
-        with cited evidence and a confidence score for every finding.
-      </p>
-      <div class="hero-cta reveal">
-        <button class="btn btn-primary magnetic" id="hero-audit">
-          <span class="btn-glow"></span>
-          <span class="btn-label">▶ Run the Audit</span>
-        </button>
-        <a href="#dashboard" class="btn btn-ghost">See the Rot Report ↓</a>
-      </div>
-
-      <div class="hero-scrim reveal" id="hero-stats"></div>
-    </section>
-
-    <!-- DASHBOARD -->
-    <section class="dashboard" id="dashboard">
-      <div class="section-head reveal">
-        <h2>The Rot Report</h2>
-        <p>Ranked worst-first. Every flag carries cited evidence.</p>
-      </div>
-
-      <div class="summary" id="summary" aria-live="polite"></div>
-
-      <div class="filters" id="filters" role="tablist" aria-label="Filter by status"></div>
-
-      <div class="report grid" id="report">
-        <div class="loading" id="loading">
-          <span class="spinner"></span> Loading Rot Report…
+  <div class="app">
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <div class="side-brand">
+        <span class="logo">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2 4 5v6c0 5 3.5 8 8 11 4.5-3 8-6 8-11V5l-8-3Z"/><path d="m9 12 2 2 4-4"/>
+          </svg>
+        </span>
+        <div class="brand-text">
+          <span class="brand-name">TruthKeeper</span>
+          <span class="brand-kicker">Knowledge Auditor</span>
         </div>
       </div>
-    </section>
-  </main>
 
-  <footer class="foot">
-    <span>Backed by <b>Cloud Run</b> · <b>Firestore</b> · <b>Gemini</b></span>
-    <span class="foot-dim">cache-first · zero live model calls at render · $0 target</span>
-  </footer>
+      <nav class="side-nav" id="side-nav">
+        <a class="nav-item" href="landing.html">
+          <svg viewBox="0 0 24 24" class="ni"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.3V20a1 1 0 0 0 1 1h3v-6h6v6h3a1 1 0 0 0 1-1V9.3"/></svg>
+          <span>Home</span>
+        </a>
+        <a class="nav-item" href="#/overview" data-view="overview">
+          <svg viewBox="0 0 24 24" class="ni"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>
+          <span>Overview</span>
+        </a>
+
+        <div class="nav-group">Understand</div>
+        <a class="nav-item" href="#/ask" data-view="ask">
+          <svg viewBox="0 0 24 24" class="ni"><path d="M21 11.5a7.5 7.5 0 0 1-10.9 6.7L4 19l1.8-5A7.5 7.5 0 1 1 21 11.5Z"/></svg>
+          <span>Ask AI</span><span class="ni-tag">guardrailed</span>
+        </a>
+
+        <div class="nav-group">Trust</div>
+        <a class="nav-item" href="#/knowledge" data-view="knowledge">
+          <svg viewBox="0 0 24 24" class="ni"><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3v5h5"/></svg>
+          <span>Knowledge</span><span class="ni-badge" id="nav-flagged"></span>
+        </a>
+        <a class="nav-item" href="#/graph" data-view="graph">
+          <svg viewBox="0 0 24 24" class="ni"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.6 7.6 10.6 15.6M16.4 7.6 13.4 15.6"/></svg>
+          <span>Knowledge Graph</span>
+        </a>
+        <a class="nav-item" href="#/manage" data-view="manage">
+          <svg viewBox="0 0 24 24" class="ni"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+          <span>Add Documents</span>
+        </a>
+
+        <div class="nav-group">Decide</div>
+        <a class="nav-item" href="#/decisions" data-view="decisions">
+          <svg viewBox="0 0 24 24" class="ni"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-4.5"/></svg>
+          <span>Decisions</span>
+        </a>
+
+        <div class="nav-group">Act</div>
+        <a class="nav-item" href="#/actions" data-view="actions">
+          <svg viewBox="0 0 24 24" class="ni"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12z"/></svg>
+          <span>Actions</span><span class="ni-badge" id="nav-actions"></span>
+        </a>
+
+        <div class="nav-sep"></div>
+        <a class="nav-item" href="#/settings" data-view="settings">
+          <svg viewBox="0 0 24 24" class="ni"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+          <span>Settings</span>
+        </a>
+      </nav>
+
+      <div class="side-foot">
+        <span id="data-badge" class="pill pill-ghost">connecting…</span>
+        <span class="side-foot-dim">Cloud Run · Firestore · Gemini</span>
+      </div>
+    </aside>
+
+    <!-- WORKSPACE -->
+    <div class="workspace">
+      <header class="topbar">
+        <button class="icon-btn only-mobile" id="menu-toggle" aria-label="Menu">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <div class="tb-title">
+          <h1 id="view-title">Overview</h1>
+          <p id="view-sub">Knowledge health at a glance</p>
+        </div>
+        <div class="tb-actions">
+          <button id="run-audit" class="btn btn-primary magnetic">
+            <span class="btn-glow"></span>
+            <span class="btn-label">Run Audit</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="view-host" id="view-host">
+        <section class="view" id="view-overview"></section>
+        <section class="view" id="view-ask"></section>
+        <section class="view" id="view-knowledge"></section>
+        <section class="view" id="view-graph"></section>
+        <section class="view" id="view-manage"></section>
+        <section class="view" id="view-decisions"></section>
+        <section class="view" id="view-actions"></section>
+        <section class="view" id="view-settings"></section>
+      </main>
+    </div>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+  <div class="drawer" id="drawer" aria-hidden="true"><div class="drawer-body" id="drawer-body"></div></div>
 
   <script src="config.js"></script>
   <script src="sample-data.js"></script>
