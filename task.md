@@ -1,135 +1,85 @@
-# TASK.md — TruthKeeper MVP (0 → deployed)
+# TASK.md — TruthKeeper
 
-> Agent: execute these phases **in order**. Do not skip ahead. After each phase,
-> run its **Acceptance check** and only continue if it passes. Follow the rules in
-> `.github/copilot-instructions.md` (Google/GCP only, cache-first, $0, no secrets in git).
+Simple status board. What's done, what you need to set up, and what's next.
 
-> **Progress (2026-10-05):**
-> - ✅ **Phase 1–2 complete & verified** (scaffold + seed corpus parses, 15 docs).
-> - 🧩 **Phase 3–5, 7 code-complete** — written and compile-clean; acceptance
->   checks still need live GCP creds (Vertex/Firestore) or a running server.
-> - ⬜ **Phase 0, 6, 8–9 pending** — need the GCP project, deploys, and demo assets.
-> - 📦 Repo live: https://github.com/mehwish786jnc/TruthKeeper
-
-## Global definition of done
-- [ ] Deployed on GCP: Cloud Run backend + Firebase Hosting frontend, publicly reachable.
-- [ ] Auditing works end-to-end using Gemini, results cached in Firestore.
-- [ ] The seed corpus produces a Rot Report that flags the planted contradiction.
-- [ ] App renders a full report with **zero live model calls** (cache-first).
-- [ ] No secrets committed. Works logged-out. Total spend ~$0.
+**Last updated: 2026-10-09**
 
 ---
 
-## Phase 0 — Project setup
-- [ ] Create/confirm GCP project; attach billing with the $300 free credit.
-- [ ] Enable APIs:
-      `gcloud services enable run.googleapis.com aiplatform.googleapis.com firestore.googleapis.com cloudbuild.googleapis.com secretmanager.googleapis.com`
-- [ ] Create Firestore in **Native mode** (region `us-central1`).
-- [ ] Set a billing **budget alert at $5**.
-- [x] Create `.env.example` with: `GCP_PROJECT`, `GCP_LOCATION=us-central1`,
-      `GEMINI_API_KEY` (AI Studio free-tier key for fallback).
-- [x] Add `.gitignore` excluding `.env`, `*.key`, `__pycache__/`, `node_modules/`.
-- **Acceptance:** `gcloud firestore databases list` shows a database; `.env` is gitignored.
-
-## Phase 1 — Repo scaffold ✅
-- [x] Create structure:
-      `backend/{main.py,audit.py,models.py,store.py,requirements.txt,Dockerfile,seed/}`
-      `frontend/{index.html,app.js}`, `firebase.json`, `README.md`.
-- [x] `backend/requirements.txt`:
-      `fastapi`, `uvicorn`, `google-genai`, `google-cloud-firestore`, `pydantic`.
-- **Acceptance:** `pip install -r backend/requirements.txt` succeeds in a venv.
-      _(not yet run in a venv locally)_
-
-## Phase 2 — Seed corpus (the demo data) ✅
-- [x] Add `backend/seed/corpus.json` — 15 docs with planted findings:
-      1 contradiction pair (deploy.sh/Heroku vs GitHub Actions/Cloud Run),
-      1 password-policy contradiction (90-day rotation vs no-rotation),
-      1 deprecated (Stackdriver/Nagios), 2 stale (2021 VPN, 2021 DB backup),
-      rest healthy.
-- [x] Add `backend/seed/EXPECTED_FINDINGS.md` (ground truth, NOT fed to the model).
-- **Acceptance:** `corpus.json` parses and has 15 entries with
-      `id,title,source,last_updated,body`. ✅ **verified**
-
-## Phase 3 — Model layer (`models.py`) 🧩
-- [x] Implement Google-only clients: Vertex (Flash/Pro) + AI Studio key (free) + Gemma.
-- [x] `call_model()` returns JSON text; raise `QuotaError` on 429, `ModelError` otherwise.
-- [x] Model names read from env, pinned (e.g. `gemini-2.5-flash`, `gemini-2.5-pro`, `gemma-3-27b-it`).
-- **Acceptance:** a throwaway script calls Flash on Vertex and gets valid JSON back.
-      _(pending live GCP creds)_
-
-## Phase 4 — Audit engine (`audit.py` + `store.py`) 🧩
-- [x] `store.py`: `get_audit(doc_id)` / `save_audit(doc_id, payload)` on Firestore.
-- [x] `audit.py`: Pydantic `AuditResult`, `build_prompt`, cache-first `audit_document`,
-      `audit_corpus`, and the routing ladder:
-      Flash → escalate to Pro if `confidence<0.55` or `uncertain` → free/Gemma on quota
-      → heuristic floor.
-- [x] Heuristic fallback flags deprecated terms + docs older than 2 years.
-- **Acceptance:** `python backend/smoke_test.py` flags `deployment-guide` as
-      **contradictory** vs `cicd-pipeline`, and the result is cached in Firestore.
-      _(pending live GCP creds)_
-
-## Phase 5 — API (`main.py`, Cloud Run) 🧩
-- [x] FastAPI endpoints:
-      `POST /audit` → loads corpus, runs `audit_corpus`, caches, returns summary.
-      `GET /report` → returns all cached audits (sorted: lowest confidence first).
-      `GET /healthz` → `{"ok": true}`. _(+ `GET /docs-list` for the UI)_
-- [x] Load `seed/corpus.json` on startup; serve corpus docs for the UI.
-- [x] Enable permissive CORS for the Firebase Hosting origin.
-- [x] `Dockerfile` (python:3.11-slim, uvicorn on `$PORT`).
-- **Acceptance:** `uvicorn main:app` locally → `POST /audit` then `GET /report`
-      returns the ranked report JSON. _(pending local run w/ creds)_
-
-## Phase 6 — Deploy backend to Cloud Run ⬜
-- [ ] `gcloud run deploy truthkeeper-api --source backend --region us-central1 \
-        --allow-unauthenticated --min-instances=0 --max-instances=2 \
-        --set-env-vars GCP_PROJECT=...,GCP_LOCATION=us-central1`
-- [ ] Store `GEMINI_API_KEY` via Secret Manager / `--set-secrets`, NOT in code.
-- [ ] Grant the Cloud Run service account Vertex AI User + Firestore roles.
-- **Acceptance:** `curl https://<cloud-run-url>/report` returns JSON from the cloud.
-
-## Phase 7 — Frontend (Firebase Hosting) 🧩
-- [x] `frontend/index.html` + `app.js`: a clean Rot Report dashboard that calls
-      the Cloud Run `GET /report`. _(+ `styles.css`, `config.js`)_
-- [x] For each doc: title, confidence score (color-coded), status badge,
-      contradictions with cited evidence, suggested fix. Sort worst-first.
-- [x] A "Run Audit" button hitting `POST /audit` (nice-to-have; report must render
-      from cache without it).
-- [ ] `firebase init hosting` + `firebase deploy --only hosting`.
-- **Acceptance:** public Firebase URL shows the Rot Report; open it in **incognito**
-      (logged-out) and it still works.
-
-## Phase 8 — Evaluation-proofing ⬜
-- [ ] Pre-run `POST /audit` so Firestore is fully populated before the demo.
-- [x] Add graceful "showing cached audit" state; never show a crash/empty screen.
-      _(cache badge + error state in `app.js`)_
-- [ ] Confirm the routing ladder degrades cleanly (simulate quota by unsetting the key).
-- [ ] Verify cold-start loads acceptably; add a frontend loading state.
-      _(loading state present; cold-start not yet measured)_
-- [x] README: architecture, how Firebase/Firestore/Cloud Run/Gemini are used,
-      local run + deploy steps, and the live URLs. _(URLs still TBD)_
-- **Acceptance:** fresh incognito visit renders the full report in < 3s with no errors.
-
-## Phase 9 — Submission assets ⬜
-- [ ] Record a **≤4:00** demo video against the **live** URL:
-      problem → upload/seed → run audit → Rot Report → the "aha"
-      (`deployment-guide` flagged only because it contradicts `cicd-pipeline`).
-      _(script drafted in `docs/demo-script.md`)_
-- [ ] Write the brief description naming Firebase, Firestore, Cloud Run, Gemini.
-      _(notes in `docs/pitch-deck-notes.md`)_
-- [x] Push public GitHub repo (verify NO secrets in history).
-      ✅ https://github.com/mehwish786jnc/TruthKeeper
-- [ ] Fill the pitch deck (prescribed template). _(notes drafted)_
-- **Acceptance:** all 4 mandatory deliverables ready; live URL confirmed working.
+## In one line
+TruthKeeper reads your documents and flags the ones that are wrong, out of date, or
+contradict each other. The app and 15 sample documents already work offline for free.
+To put it on the internet, we need to set up some Google Cloud accounts.
 
 ---
 
-## Guardrails (apply throughout)
-- Google models only (Gemini + Gemma). Never add non-Google providers.
-- Cache every audit in Firestore; never re-audit on page load.
-- Cloud Run `min-instances=0`. No AlloyDB, no standing Vertex AI Search index, no BigQuery.
-- Secrets only via env/Secret Manager. Budget alert at $5. Delete resources after eval.
+## Done ✅
+- The backend (the "brain" that audits documents) is written.
+- The website is built: dashboard, Ask AI, Knowledge, Graph, Add Documents, Decisions, Actions, Settings, and a landing page.
+- 15 sample documents are made as real PDF files (about 6 pages each).
+- Everything runs offline on demo data — no login, no cost.
+- Code is on GitHub.
+
+---
+
+## Accounts YOU need to create (my part can't be done without these)
+These need your login and a payment method, so only you can do them.
+Nothing here costs money for our use — but a card/credit must be on file.
+
+1. **Google Cloud account + a project** (turn on billing — use the $300 free credit).
+   This is the main one. Gemini and Document AI need billing switched on, even though
+   our real cost stays about $0.
+2. **Firebase project** — link it to the same Google Cloud project. This hosts the website.
+3. **Log in to the tools on your computer:**
+   - `gcloud auth login`
+   - `gcloud auth application-default login`
+   - `firebase login`
+4. **(Optional) AI Studio key** from aistudio.google.com — only for the free backup model.
+   Skip if you don't want it.
+
+GitHub is already set up.
+
+> Don't want to add a card at all? We can stay on the free AI Studio key + the built-in
+> fallback instead of Google Cloud. It won't be a full cloud deploy, but it stays free.
+
+---
+
+## What's next (in order)
+
+### 1. Save the current work
+- [ ] Commit and push the 15 PDFs and the updated files.
+
+### 2. Put the documents in a database (make the app "live")
+- [ ] Load the 15 PDFs into Firestore (read the text with Document AI, with a free offline backup).
+- [ ] Let the app upload a new PDF and audit it for real.
+- [ ] Keep offline demo working as a fallback.
+
+### 3. Set up Google Cloud *(needs your accounts above)*
+- [ ] Create the project, turn on billing, set a $5 budget alert.
+- [ ] Turn on the needed services and create the database.
+
+### 4. Put it online
+- [ ] Deploy the backend (Cloud Run).
+- [ ] Deploy the website (Firebase Hosting).
+- [ ] Point the website at the backend.
+
+### 5. Make it demo-proof
+- [ ] Run the audit once so results are saved and the demo is instant.
+- [ ] Check it works logged-out, offline, and never shows a broken screen.
+
+### 6. Submission
+- [ ] Record a short demo video (under 4 minutes).
+- [ ] Write the description and fill the pitch deck.
+
+---
+
+## Rules to remember
+- Use Google models only (Gemini / Gemma).
+- Audit each document once, save the result, and just read it after that (keeps it fast and free).
+- Keep cost near $0.
+- It must always work even when logged out or offline.
+- Never put passwords or keys in the code.
 
 ## Done when
-The live Firebase URL shows a ranked Rot Report (worst-first) with cited evidence,
-backed by Cloud Run + Firestore + Gemini, reproducible from a clean `git clone` by
-following the README — at ~$0 cost.
+The website is live on a public link, shows the flagged documents with evidence, uses
+Google Cloud behind it, and the 15 documents live in the database — all for about $0.
