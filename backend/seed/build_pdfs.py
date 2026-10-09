@@ -26,23 +26,24 @@ SEED_DIR = Path(__file__).parent
 CORPUS_PATH = SEED_DIR / "corpus.json"
 PDF_DIR = SEED_DIR / "pdfs"
 
-# Owner teams per doc (from the frontend DEMO.teams map).
+# Owner team + point of contact per doc. Teams expand the short DEMO.teams labels
+# into realistic department names; POC is the named owner for the document.
 OWNERS = {
-    "deployment-guide": "Platform, SRE",
-    "cicd-pipeline": "Platform",
-    "monitoring-setup": "SRE",
-    "vpn-access": "IT",
-    "password-policy": "Security, IT",
-    "security-standards-2025": "Security",
-    "onboarding-checklist": "People, Platform",
-    "expense-policy": "Finance",
-    "oncall-runbook": "SRE",
-    "api-auth-guide": "Platform",
-    "data-retention": "Legal",
-    "code-review-guidelines": "Platform",
-    "incident-severity": "SRE",
-    "remote-work-policy": "People",
-    "database-backup": "SRE, Data",
+    "deployment-guide":        {"team": "Platform Engineering, Site Reliability Engineering", "poc": "Priya Nair, Staff Platform Engineer"},
+    "cicd-pipeline":           {"team": "Platform Engineering",                                 "poc": "Marcus Lee, Platform Lead"},
+    "monitoring-setup":        {"team": "Site Reliability Engineering",                         "poc": "Dani Okafor, SRE Lead"},
+    "vpn-access":              {"team": "IT Support",                                           "poc": "Sam Carter, IT Support Manager"},
+    "password-policy":         {"team": "Information Security, IT Support",                     "poc": "Aisha Rahman, Security Engineer"},
+    "security-standards-2025": {"team": "Information Security",                                 "poc": "Jordan Mehta, Head of Security"},
+    "onboarding-checklist":    {"team": "People Operations, Platform Engineering",             "poc": "Elena Volkov, People Partner"},
+    "expense-policy":          {"team": "Finance",                                              "poc": "Tom Bradley, Finance Manager"},
+    "oncall-runbook":          {"team": "Site Reliability Engineering",                         "poc": "Chen Wei, Senior SRE"},
+    "api-auth-guide":          {"team": "Platform Engineering",                                 "poc": "Raj Patel, API Platform Engineer"},
+    "data-retention":          {"team": "Legal & Compliance",                                   "poc": "Fatima Alvi, Compliance Counsel"},
+    "code-review-guidelines":  {"team": "Platform Engineering",                                 "poc": "Nadia Hassan, Engineering Manager"},
+    "incident-severity":       {"team": "Site Reliability Engineering",                         "poc": "Chen Wei, Senior SRE"},
+    "remote-work-policy":      {"team": "People Operations",                                    "poc": "Elena Volkov, People Partner"},
+    "database-backup":         {"team": "Site Reliability Engineering, Data Engineering",      "poc": "Luis Romero, Database Reliability Engineer"},
 }
 
 
@@ -122,10 +123,11 @@ def build_pdf(doc: dict, st) -> Path:
         leftMargin=1.25 * inch, rightMargin=1.25 * inch,
         title=doc["title"], author="Northwind Knowledge Base",
     )
-    owner = OWNERS.get(doc["id"], "Unassigned")
+    owner = OWNERS.get(doc["id"], {"team": "Unassigned", "poc": "Unassigned"})
     meta = (f"{_esc(doc.get('source', doc['id']))} &nbsp;&middot;&nbsp; "
-            f"Updated {_esc(doc.get('last_updated', '—'))} &nbsp;&middot;&nbsp; "
-            f"Owner: {_esc(owner)}")
+            f"Updated {_esc(doc.get('last_updated', '—'))}<br/>"
+            f"Owner: {_esc(owner['team'])} &nbsp;&middot;&nbsp; "
+            f"POC: {_esc(owner['poc'])}")
     flow = [Paragraph(_esc(doc["title"]), st["title"]), Paragraph(meta, st["meta"]), Spacer(1, 2)]
 
     body_md = LONG_BODIES.get(doc["id"])
