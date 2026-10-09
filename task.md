@@ -49,10 +49,37 @@ GitHub is already set up.
 ### 1. Save the current work
 - [ ] Commit and push the 15 PDFs and the updated files.
 
-### 2. Put the documents in a database (make the app "live")
-- [ ] Load the 15 PDFs into Firestore (read the text with Document AI, with a free offline backup).
-- [ ] Let the app upload a new PDF and audit it for real.
-- [ ] Keep offline demo working as a fallback.
+### 2. Make the app dynamic (backend work)
+Right now the documents are typed into the code (hard-coded) and uploads only save in the
+browser. "Dynamic" means the documents live in the database, and adding, auditing, or
+deleting one actually updates everywhere. This is the main backend job.
+
+**Database**
+- [ ] Add a "documents" area in Firestore (save a document, get one, list all, delete one).
+- [ ] Load the 15 PDFs into it: read each PDF's text (with Document AI, and a free offline
+      reader as backup), then save it.
+- [ ] Keep a copy of the documents on disk so the app still works offline for free.
+
+**Backend endpoints (what the website can ask the backend to do)**
+- [ ] Upload a document (send a PDF → read its text → save it → audit it → return the result).
+- [ ] List all documents (from the database).
+- [ ] Delete a document (and its audit result).
+- [ ] Make the backend load documents from the database first, and fall back to the disk copy
+      if the database isn't available.
+
+**Website (make it use the backend instead of the fake data)**
+- [ ] When connected to the backend, load the real documents and audit results from it.
+- [ ] Let "Add Documents" upload a real PDF that gets saved and audited for real.
+- [ ] Make delete and re-audit actually change the database.
+- [ ] If there's no backend, keep showing the offline demo data (so it never breaks).
+
+**Built to grow (later)**
+- [ ] Leave simple hooks so other sources (company wiki, runbooks) can be plugged in later
+      without rebuilding this.
+
+**Done when:** you upload a PDF in the website, it gets saved and audited, and it shows up in
+the Knowledge list and the Graph with a real status — and offline mode still works.
+
 
 ### 3. Set up Google Cloud *(needs your accounts above)*
 - [ ] Create the project, turn on billing, set a $5 budget alert.
