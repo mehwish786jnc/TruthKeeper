@@ -319,8 +319,6 @@ window.DEMO = {
       after: "We monitor all services using Google Cloud Monitoring. Host-level checks run via the Cloud Monitoring agent. The Nagios box has been decommissioned.",
     },
   ],
-  decisionLog: [
-    { doc_id: "data-retention", action: "accept", title: "Confirmed 7-year retention is current", who: "A. Okafor", when: "2026-09-28" },
-  ],
+  decisionLog: [],
 };
 

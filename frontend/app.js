@@ -55,6 +55,8 @@ function auditFor(id) { return STATE.audits.find((a) => a.doc_id === id); }
 function docFor(id) { return STATE.corpus.find((d) => d.id === id); }
 function titleOf(id) { return docFor(id)?.title || auditFor(id)?.title || id; }
 function teamsOf(id) { return STATE.demo.teams?.[id] || []; }
+function ownerTeamOf(id) { const t = docFor(id)?.owner?.team; return t ? String(t) : (teamsOf(id).join(", ")); }
+function pocOf(id) { return docFor(id)?.owner?.poc || ""; }
 
 /* ---------- user-added documents (persisted, offline) ---------- */
 const USER_DOCS_KEY = "tk_user_docs";
@@ -95,28 +97,86 @@ function countUp(node, to, { suffix = "", dur = 900 } = {}) {
   })(start);
 }
 
-/* ---------- data load (demo-first) ---------- */
-async function loadData() {
-  try {
-    if (!API) throw new Error("demo");
-    const res = await fetch(`${API}/report`, { cache: "no-store" });
-    if (!res.ok) throw new Error("http");
-    const data = await res.json();
-    if (!data.audits?.length) throw new Error("empty");
-    STATE.audits = data.audits; STATE.isDemo = false;
-    setBadge("live · from cache", "var(--green)");
-  } catch {
-    STATE.audits = (window.SAMPLE_AUDITS || []).slice(); STATE.isDemo = true;
-    setBadge("demo data", "var(--amber)");
-  }
-  STATE.corpus = (window.CORPUS || []).slice();
-  STATE.demo = window.DEMO || {};
-  STATE.demo.teams = { ...(STATE.demo.teams || {}) };
-  loadUserDocs().forEach((d) => {
-    if (!STATE.corpus.some((x) => x.id === d.id)) STATE.corpus.push({ id: d.id, title: d.title, source: d.source, body: d.body, last_updated: d.last_updated });
-    if (d.owner?.length) STATE.demo.teams[d.id] = d.owner;
-    if (!STATE.audits.some((a) => a.doc_id === d.id)) STATE.audits.push(heuristicAudit(d));
+/* ---------- data load (backend-first, demo fallback) ---------- */
+async function fetchJSON(url, opts) {
+  const r = await fetch(url, { cache: "no-store", ...(opts || {}) });
+  if (!r.ok) throw new Error("http " + r.status);
+  return r.json();
+}
+
+// Assemble STATE.demo from backend responses, matching the sample-data shape so
+// the render functions need no changes. Authored content (gaps/processes/research/
+// impact/remediation/history) comes from GET /insights; health/relationships/teams/
+// decisions are derived from the live endpoints.
+function buildDemoFromBackend({ docs, audits, health, graph, decisions, insights }) {
+  const ins = insights || {};
+  const teams = {};
+  docs.forEach((d) => {
+    const t = d.owner && d.owner.team;
+    if (t) teams[d.id] = String(t).split(",").map((s) => s.trim()).filter(Boolean);
   });
+  const bd = (health && health.breakdown) || {};
+  const total = audits.length || 1;
+  const healthyCount = audits.filter((a) => a.status === "healthy").length;
+  const months = ["May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const trend = ((health && health.history) || []).map((score, i) => ({ m: months[i] || `P${i + 1}`, score }));
+  const recentlyChanged = [...docs]
+    .filter((d) => d.last_updated)
+    .sort((a, b) => String(b.last_updated).localeCompare(String(a.last_updated)))
+    .slice(0, 4)
+    .map((d) => ({ id: d.id, title: d.title, when: d.last_updated, change: "updated" }));
+  const healthObj = health && typeof health.score === "number" ? {
+    score: health.score, grade: health.grade,
+    trustedPct: Math.round((healthyCount / total) * 100),
+    stale: bd.stale || 0, deprecated: bd.deprecated || 0, contradictions: bd.contradictory || 0,
+    criticalRisks: bd.contradictory || 0, gaps: (ins.gaps || []).length,
+    trend, recentlyChanged,
+  } : {};
+  // Relationships come entirely from /graph now (live contradictions + derived
+  // reference/dependency edges) — no seeded relationship list.
+  const relationships = ((graph && graph.edges) || []).map((e) => ({ a: e.a, b: e.b, type: e.type || "contradiction", explanation: e.explanation }));
+  const decMap = (decisions && decisions.decisions) || {};
+  const decisionLog = Object.entries(decMap).map(([doc_id, v]) => ({
+    doc_id, action: v.action, note: v.note, when: v.decided_at,
+    title: (docs.find((d) => d.id === doc_id) || {}).title || doc_id,
+  }));
+  return { ...ins, teams, health: healthObj, relationships, decisionLog };
+}
+
+async function loadData() {
+  let online = false;
+  if (API) {
+    try {
+      const headers = TOKEN ? { "X-Audit-Token": TOKEN } : {};
+      const [report, docs, health, graph, decisions, insights] = await Promise.all([
+        fetchJSON(`${API}/report`, { headers }),
+        fetchJSON(`${API}/documents`, { headers }),
+        fetchJSON(`${API}/health-score`, { headers }).catch(() => null),
+        fetchJSON(`${API}/graph`, { headers }).catch(() => null),
+        fetchJSON(`${API}/decisions`, { headers }).catch(() => null),
+        fetchJSON(`${API}/insights`, { headers }).catch(() => ({})),
+      ]);
+      if (!report.audits?.length || !Array.isArray(docs) || !docs.length) throw new Error("empty");
+      STATE.audits = report.audits;
+      STATE.corpus = docs.map((d) => ({ id: d.id, title: d.title, source: d.source, body: d.body, last_updated: d.last_updated, owner: d.owner }));
+      STATE.demo = buildDemoFromBackend({ docs, audits: report.audits, health, graph, decisions, insights });
+      STATE.isDemo = false; online = true;
+      setBadge("live · from cache", "var(--green)");
+    } catch { online = false; }
+  }
+  if (!online) {
+    STATE.audits = (window.SAMPLE_AUDITS || []).slice();
+    STATE.corpus = (window.CORPUS || []).slice();
+    STATE.demo = window.DEMO || {};
+    STATE.demo.teams = { ...(STATE.demo.teams || {}) };
+    STATE.isDemo = true;
+    setBadge("demo data", "var(--amber)");
+    loadUserDocs().forEach((d) => {
+      if (!STATE.corpus.some((x) => x.id === d.id)) STATE.corpus.push({ id: d.id, title: d.title, source: d.source, body: d.body, last_updated: d.last_updated, owner: d.owner });
+      if (d.owner?.team) STATE.demo.teams[d.id] = String(d.owner.team).split(",").map((s) => s.trim()).filter(Boolean);
+      if (!STATE.audits.some((a) => a.doc_id === d.id)) STATE.audits.push(heuristicAudit(d));
+    });
+  }
   STATE.decisionLog = (STATE.demo.decisionLog || []).slice();
   STATE.remediation = (STATE.demo.remediation || []).map((r) => ({ ...r, step: 0 }));
   STATE.audits.sort((a, b) => (a.confidence ?? 1) - (b.confidence ?? 1));
@@ -347,22 +407,48 @@ function ask() {
   const query = $("#ask-input").value.trim(); if (!query) return;
   const out = $("#ask-answer");
   out.innerHTML = `<div class="answer"><div class="answer-body"><p class="ans-text"><span class="spinner"></span> checking knowledge trust…</p></div></div>`;
+  if (API && !STATE.isDemo) {
+    void (async () => {
+      try {
+        const r = await fetchJSON(`${API}/ask`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(TOKEN ? { "X-Audit-Token": TOKEN } : {}) },
+          body: JSON.stringify({ question: query }),
+        });
+        renderAnswer(out, query, r);
+      } catch { renderAnswer(out, query); }
+    })();
+    return;
+  }
   setTimeout(() => renderAnswer(out, query), reduceMotion ? 0 : 650);
 }
 
-function renderAnswer(out, query) {
-  const { best: doc, second } = retrieve(query);
+function renderAnswer(out, query, server) {
+  let doc = null, answerText = null, trustedOverride = null;
+  if (server && server.found) {
+    doc = docFor(server.source);
+    answerText = server.answer;
+    if (server.trust && typeof server.trust.trusted === "boolean") trustedOverride = server.trust.trusted;
+  }
+  if (!doc) doc = retrieve(query).best;
   if (!doc) { out.innerHTML = `<div class="answer"><div class="answer-body"><p class="ans-text">No document in the knowledge base matches that question.</p></div></div>`; return; }
   const a = auditFor(doc.id);
-  const trusted = a && a.status === "healthy" && (a.confidence ?? 0) >= 0.7;
-  const snippet = doc.body.split(/(?<=[.!?])\s/).slice(0, 2).join(" ");
+  const score = Math.round(((server?.trust && typeof server.trust.score === "number" ? server.trust.score : a?.confidence) ?? 0) * 100);
+  const trusted = trustedOverride != null ? trustedOverride : (a && a.status === "healthy" && (a.confidence ?? 0) >= 0.7);
+  const snippet = answerText || doc.body.split(/(?<=[.!?])\s/).slice(0, 2).join(" ");
   const m = STATUS[a?.status] || STATUS.uncertain;
   const con = a?.contradictions?.[0];
 
-  // "why" explanations
+  // Evidence = real quoted clauses (not a repeat of the answer).
+  let evItems = [];
+  if (Array.isArray(server?.trust?.evidence) && server.trust.evidence.length) evItems = server.trust.evidence;
+  else if (Array.isArray(a?.evidence) && a.evidence.length) evItems = a.evidence;
+  else evItems = [doc.body.split(/(?<=[.!?])\s/)[0]];
+  const evidenceHtml = evItems.slice(0, 3).map((e) => `<blockquote>${esc(e)}</blockquote>`).join("");
+
   const why = trusted
-    ? `This document is audited <b>healthy</b> at ${Math.round((a.confidence) * 100)}% confidence, was reviewed recently, and no other document contradicts it.`
-    : `This source is flagged <b>${esc(m.label)}</b> at ${Math.round((a?.confidence ?? 0) * 100)}% confidence${con ? `, and it conflicts with <code>${esc(con.other_doc)}</code>` : ""}. TruthKeeper withholds a confident answer until it's resolved.`;
+    ? `Audited <b>healthy</b> at ${score}% confidence, with no other document contradicting it.`
+    : `Flagged <b>${esc(m.label)}</b> at ${score}% confidence${con ? `, conflicting with <code>${esc(con.other_doc)}</code>` : ""}. TruthKeeper withholds a confident answer until it's resolved.`;
 
   const conflictBlock = con ? `
     <h4>Conflicting source</h4>
@@ -375,14 +461,17 @@ function renderAnswer(out, query) {
     <div class="answer">
       <div class="trust-banner ${trusted ? "ok" : "warn"}">
         <span class="tb-ico" style="background:color-mix(in srgb, ${trusted ? "var(--green)" : "var(--red)"} 25%, transparent)">${trusted ? "✓" : "!"}</span>
-        ${trusted ? "Verified answer — safe to trust" : "Answer withheld — source cannot be trusted"}
+        <span class="tb-text">${trusted ? "Verified answer — safe to trust" : "Answer withheld — source cannot be trusted"}</span>
+        <span class="tb-conf" style="--c:${trusted ? "var(--green)" : "var(--red)"}">${score}%<small>confidence</small></span>
       </div>
       <div class="answer-body">
-        <p class="ans-text">${trusted ? esc(snippet) : "TruthKeeper did not surface a confident answer because the best-matching source is not trustworthy."}</p>
-        <div class="why ${trusted ? "ok" : "warn"}"><b>${trusted ? "Why do I trust this?" : "Why was this withheld?"}</b> ${why}</div>
+        ${trusted
+          ? `<p class="ans-text">${esc(snippet)}</p>`
+          : `<p class="ans-text ans-muted">TruthKeeper won't answer from this source. Here's what it claims — treat as <b>unverified</b>:</p><blockquote class="untrusted">${esc(snippet)}</blockquote>`}
+        <div class="why ${trusted ? "ok" : "warn"}">${why}</div>
         <h4>Source</h4>
-        <div class="answer-src">${miniBadge(a?.status || "uncertain")} <code>${esc(doc.id)}</code> · updated ${esc(doc.last_updated || "—")} · ${teamsOf(doc.id).join(", ") || "unassigned"} <button class="chip-link" data-doc="${esc(doc.id)}">open</button></div>
-        <h4>Evidence</h4><blockquote>${esc(snippet)}</blockquote>
+        <div class="answer-src">${miniBadge(a?.status || "uncertain")} <code>${esc(doc.id)}</code> <span class="src-meta">updated ${esc(doc.last_updated || "—")} · ${esc(ownerTeamOf(doc.id) || "unassigned")}${pocOf(doc.id) ? ` · POC ${esc(pocOf(doc.id))}` : ""}</span> <button class="chip-link" data-doc="${esc(doc.id)}">open</button></div>
+        <h4>Evidence</h4>${evidenceHtml}
         ${conflictBlock}
         ${related ? `<h4>Related knowledge</h4><div class="chip-row">${related}</div>` : ""}
       </div>
@@ -401,6 +490,24 @@ function matchResearch(q) {
 function research() {
   const q = $("#ask-input").value.trim(); if (!q) return;
   const out = $("#ask-answer");
+
+  // Online: ask the backend to cross-check live (real recommendation + comparison).
+  if (API && !STATE.isDemo) {
+    out.innerHTML = `<div class="research-progress"><div class="rp-step done"><span class="rp-dot"></span> cross-checking sources with Gemini…</div></div>`;
+    void (async () => {
+      try {
+        const data = await fetchJSON(`${API}/research`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(TOKEN ? { "X-Audit-Token": TOKEN } : {}) },
+          body: JSON.stringify({ question: q }),
+        });
+        renderResearchResult(out, data, q);
+      } catch { renderResearchResult(out, genericResearch(q), q); }
+    })();
+    return;
+  }
+
+  // Offline: prefab scenario with a synthetic progress animation.
   const scenario = matchResearch(q);
   const steps = ["Parsing the question", "Selecting relevant knowledge", "Reading sources", "Cross-checking claims", "Detecting conflicts & gaps", "Composing recommendation"];
   out.innerHTML = `<div class="research-progress" id="rs-prog"></div>`;
@@ -435,6 +542,20 @@ function genericResearch(q) {
   };
 }
 
+// Record a human decision — optimistic local update + backend persistence (online).
+async function recordDecision(doc_id, action, note) {
+  STATE.decisionLog.unshift({ doc_id, action, title: note, who: "You", when: new Date().toISOString().slice(0, 10) });
+  if (API && !STATE.isDemo) {
+    try {
+      await fetch(`${API}/decisions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(TOKEN ? { "X-Audit-Token": TOKEN } : {}) },
+        body: JSON.stringify({ doc_id, action, note: note || "" }),
+      });
+    } catch { /* keep the optimistic local entry if the write fails */ }
+  }
+}
+
 function renderResearchResult(out, d, q) {
   const sources = (d.sources || []).map((s) => `<div class="src-pill">${miniBadge(s.status)} <code>${esc(s.id)}</code> <b>${Math.round((s.conf || 0) * 100)}%</b></div>`).join("");
   const evidence = (d.evidence || []).map((e) => `<div class="ev-row"><code>${esc(e.doc)}</code><blockquote>${esc(e.text)}</blockquote></div>`).join("");
@@ -453,7 +574,7 @@ function renderResearchResult(out, d, q) {
     <div class="research-result">
       <div class="rr-head">
         <div><div class="rr-q">${esc(q)}</div><div class="muted-sm">${(d.sources || []).length} sources examined · ${(d.contradictions || []).length} conflicts · ${(d.gaps || []).length} gaps</div></div>
-        <div class="rr-conf"><div class="rr-conf-num" style="color:${col}">${pct}%</div><div class="muted-sm">confidence</div></div>
+        <div class="rr-conf"><div id="rr-ring"></div><div class="muted-sm">confidence</div></div>
       </div>
       <div class="recommend"><div class="rec-badge">Recommendation</div><p>${esc(d.recommendation)}</p>${d.decision ? `<div class="rec-decide">Decision: <b>${esc(d.decision)}</b> <button class="btn btn-sm btn-primary" id="rs-adopt">Record decision</button></div>` : ""}</div>
       ${cmp}
@@ -461,8 +582,9 @@ function renderResearchResult(out, d, q) {
       ${evidence ? `<h4>Evidence</h4>${evidence}` : ""}
       ${cons}${gaps}
     </div>`;
+  const rr = $("#rr-ring", out); if (rr) rr.append(ring(d.confidence || 0, col, 66, 6));
   const adopt = $("#rs-adopt", out);
-  if (adopt) adopt.onclick = () => { STATE.decisionLog.unshift({ doc_id: d.based_on || (d.sources?.[0]?.id ?? "—"), action: "accept", title: d.decision, who: "You", when: new Date().toISOString().slice(0, 10) }); toast("Decision recorded"); go("decisions"); };
+  if (adopt) adopt.onclick = async () => { await recordDecision(d.based_on || (d.sources?.[0]?.id ?? "—"), "accept", d.decision); toast("Decision recorded"); go("decisions"); };
 }
 
 /* ============================================================
@@ -489,7 +611,7 @@ function renderDocTable(host) {
     const row = el("div", "doc-row", `
       <div><div class="d-title">${esc(d.title)}</div><div class="d-src">${esc(d.source || d.id)}</div></div>
       <span class="d-updated d-src">${esc(d.last_updated || "—")}</span>
-      <span class="d-src">${teamsOf(d.id).join(", ") || "—"}</span>
+      <span class="d-owner"><span class="d-team">${esc(ownerTeamOf(d.id) || "—")}</span>${pocOf(d.id) ? `<span class="d-poc">${esc(pocOf(d.id))}</span>` : ""}</span>
       ${miniBadge(a?.status || "uncertain")}
       <span class="d-conf" style="color:${m.color}">${a ? Math.round((a.confidence ?? 0) * 100) + "%" : "—"}</span>`);
     row.onclick = () => openDoc(d.id);
@@ -570,7 +692,8 @@ function openDoc(id, tab = "overview") {
       <p class="drawer-text">${esc(d?.body || "")}</p>
       <div class="kv"><span>Status</span>${miniBadge(a?.status || "uncertain")}</div>
       <div class="kv"><span>Confidence</span><b style="color:${m.color}">${Math.round((a?.confidence ?? 0) * 100)}%</b></div>
-      <div class="kv"><span>Owner teams</span><span>${teamsOf(id).join(", ") || "unassigned"}</span></div>
+      <div class="kv"><span>Owner</span><span>${esc(ownerTeamOf(id) || "unassigned")}</span></div>
+      ${pocOf(id) ? `<div class="kv"><span>Point of contact</span><span>${esc(pocOf(id))}</span></div>` : ""}
       <div class="kv"><span>Last updated</span><span>${esc(d?.last_updated || "—")}</span></div>
       ${a?.suggested_fix ? `<div class="fix"><h4>Suggested fix</h4><p>${esc(a.suggested_fix)}</p></div>` : ""}`;
   } else if (tab === "evidence") {
@@ -613,7 +736,18 @@ function docAction(act, id) {
     $("#verify-slot").innerHTML = `<div class="verify-chip ${trusted ? "ok" : "warn"}">${trusted ? "✓ Verified — safe to trust" : `✕ Not trusted — ${STATUS[a?.status]?.label || "unknown"} (${Math.round((a?.confidence ?? 0) * 100)}%)`}</div>`;
   } else if (act === "audit") {
     $("#verify-slot").innerHTML = `<div class="verify-chip"><span class="spinner"></span> re-auditing with Gemini…</div>`;
-    setTimeout(() => docAction("verify", id), reduceMotion ? 0 : 1100);
+    if (API && !STATE.isDemo) {
+      void (async () => {
+        try {
+          const res = await fetch(`${API}/documents/${encodeURIComponent(id)}/audit`, { method: "POST", headers: TOKEN ? { "X-Audit-Token": TOKEN } : {} });
+          if (!res.ok) throw new Error("audit");
+          await loadData();
+          openDoc(id);
+        } catch { docAction("verify", id); }
+      })();
+    } else {
+      setTimeout(() => docAction("verify", id), reduceMotion ? 0 : 1100);
+    }
   } else if (act === "compare") {
     const con = a?.contradictions?.[0]?.other_doc;
     openCompare(id, con || STATE.corpus.find((d) => d.id !== id)?.id);
@@ -642,6 +776,7 @@ let graphRAF = null;
 function renderGraph() {
   const host = $("#view-graph");
   host.innerHTML = `
+    <div class="graph-insights" id="graph-insights"></div>
     <div class="graph-layout">
       <div class="graph-wrap">
         <canvas id="graph-canvas"></canvas>
@@ -656,7 +791,66 @@ function renderGraph() {
         <div class="gi-empty">Select a node to inspect its contradictions, dependencies and risk.</div>
       </aside>
     </div>`;
+  renderGraphInsights(graphModel());
   startGraph();
+}
+
+// Graph-only analytics the Findings list can't show: hubs, conflict clusters,
+// risk propagation to healthy neighbours, and isolated documents. All derived live.
+function graphInsights(model) {
+  const { nodes, edges } = model;
+  const deg = {}, adj = {};
+  nodes.forEach((n) => { deg[n.id] = 0; adj[n.id] = new Set(); });
+  edges.forEach((e) => {
+    if (adj[e.a] && adj[e.b]) { deg[e.a]++; deg[e.b]++; adj[e.a].add(e.b); adj[e.b].add(e.a); }
+  });
+  const conflictNodes = new Set();
+  edges.filter((e) => e.type === "contradiction").forEach((e) => { conflictNodes.add(e.a); conflictNodes.add(e.b); });
+
+  // connected components (clusters)
+  const seen = new Set(); const comps = [];
+  nodes.forEach((n) => {
+    if (seen.has(n.id)) return;
+    const stack = [n.id], comp = []; seen.add(n.id);
+    while (stack.length) { const x = stack.pop(); comp.push(x); adj[x].forEach((y) => { if (!seen.has(y)) { seen.add(y); stack.push(y); } }); }
+    comps.push(comp);
+  });
+  const conflictClusters = comps.filter((c) => c.length >= 2 && c.some((id) => conflictNodes.has(id)));
+
+  const hubs = nodes.map((n) => ({ id: n.id, d: deg[n.id] })).filter((x) => x.d >= 2).sort((a, b) => b.d - a.d);
+  const orphans = nodes.filter((n) => deg[n.id] === 0).map((n) => n.id);
+  // healthy docs sitting next to a contradiction → their reliability is in question
+  const atRisk = nodes.filter((n) => n.status === "healthy" && [...adj[n.id]].some((o) => conflictNodes.has(o))).map((n) => n.id);
+  return { hubs, orphans, atRisk, conflictClusters, edgeCount: edges.length };
+}
+
+function renderGraphInsights(model) {
+  const host = $("#graph-insights"); if (!host) return;
+  const g = graphInsights(model);
+  const chips = (ids) => ids.length
+    ? ids.slice(0, 4).map((id) => `<button class="chip-link" data-doc="${esc(id)}">${esc(titleOf(id))}</button>`).join("")
+    : `<span class="muted-sm">none</span>`;
+  const hubLabel = g.hubs.length
+    ? `<button class="chip-link" data-doc="${esc(g.hubs[0].id)}">${esc(titleOf(g.hubs[0].id))}</button> <span class="muted-sm">${g.hubs[0].d} links</span>`
+    : `<span class="muted-sm">no strongly-connected document yet</span>`;
+  host.innerHTML = `
+    <div class="gins-card ${g.conflictClusters.length ? "bad" : "ok"}">
+      <div class="gins-n">${g.conflictClusters.length}</div>
+      <div><div class="gins-t">Conflict cluster${g.conflictClusters.length === 1 ? "" : "s"}</div><div class="gins-s">groups where a contradiction spreads across linked docs</div></div>
+    </div>
+    <div class="gins-card">
+      <div class="gins-t">Most connected</div><div class="gins-row">${hubLabel}</div>
+      <div class="gins-s">changes here ripple the widest</div>
+    </div>
+    <div class="gins-card ${g.atRisk.length ? "warn" : ""}">
+      <div class="gins-t">At risk <span class="gins-badge">${g.atRisk.length}</span></div><div class="gins-row">${chips(g.atRisk)}</div>
+      <div class="gins-s">healthy docs linked to a flagged one</div>
+    </div>
+    <div class="gins-card">
+      <div class="gins-t">Isolated <span class="gins-badge">${g.orphans.length}</span></div><div class="gins-row">${chips(g.orphans)}</div>
+      <div class="gins-s">no detected links — review or retire</div>
+    </div>`;
+  $$("[data-doc]", host).forEach((b) => (b.onclick = () => openDoc(b.dataset.doc)));
 }
 
 function graphModel() {
@@ -728,7 +922,8 @@ function inspectNode(id) {
     <div class="gi-head"><div><div class="muted-sm">${esc(d?.source || id)}</div><h3>${esc(d?.title || id)}</h3></div></div>
     <div class="kv"><span>Status</span>${miniBadge(a?.status || "uncertain")}</div>
     <div class="kv"><span>Risk</span><b style="color:${riskCol}">${risk}</b></div>
-    <div class="kv"><span>Owner</span><span>${teamsOf(id).join(", ") || "—"}</span></div>
+    <div class="kv"><span>Owner</span><span>${esc(ownerTeamOf(id) || "—")}</span></div>
+    ${pocOf(id) ? `<div class="kv"><span>Point of contact</span><span>${esc(pocOf(id))}</span></div>` : ""}
     <h4>Contradictions</h4><div class="chip-row">${group("contradiction")}</div>
     <h4>Dependencies</h4><div class="chip-row">${group("dependency")}</div>
     <h4>References</h4><div class="chip-row">${group("reference")}</div>
@@ -807,25 +1002,97 @@ function remediationCard(r) {
   const sevCol = r.severity === "high" ? "var(--red)" : "var(--amber)";
   const c = el("article", "rem-card"); c.id = "rem-" + r.id;
   const stepper = REM_STEPS.map((s, i) => `<div class="rstep ${i <= r.step ? "on" : ""} ${i === r.step ? "cur" : ""}"><span class="rstep-dot">${i < r.step ? "✓" : i + 1}</span><span class="rstep-label">${s}</span></div>`).join("<div class='rstep-line'></div>");
+  const excerpt = (t) => { const s = String(t || ""); return s.length > 700 ? s.slice(0, 700) + " …" : s; };
   let panel = "";
-  if (r.step === 0) panel = `<p class="rem-problem">${esc(r.problem)}</p><button class="btn btn-sm btn-primary" data-adv="${r.id}">Suggest correction →</button>`;
-  else if (r.step === 1) panel = `<div class="fix"><h4>Suggested correction (Gemini)</h4><p>${esc(r.after)}</p></div><button class="btn btn-sm btn-primary" data-adv="${r.id}">Preview changes →</button>`;
-  else if (r.step === 2) panel = `<div class="diff"><div class="diff-col before"><div class="diff-h">− current</div><p>${esc(r.before)}</p></div><div class="diff-col after"><div class="diff-h">+ proposed</div><p>${esc(r.after)}</p></div></div><div class="fix-actions"><button class="btn btn-sm btn-primary" data-approve="${r.id}">Approve &amp; apply</button><button class="btn btn-sm btn-ghost" data-reject="${r.id}">Dismiss</button></div>`;
-  else if (r.step === 3) panel = `<div class="verify-chip ok">✓ Approved — applying…</div>`;
+  if (r.loading) panel = `<div class="verify-chip"><span class="spinner"></span> drafting a correction with Gemini…</div>`;
+  else if (r.step === 0) panel = `<p class="rem-problem">${esc(r.problem)}</p><button class="btn btn-sm btn-primary" data-draft="${r.id}">Draft AI correction →</button>`;
+  else if (r.step === 1) panel = `<div class="verify-chip"><span class="spinner"></span> drafting a correction with Gemini…</div>`;
+  else if (r.step === 2) panel = `
+    ${r.changeSummary ? `<div class="fix"><h4>Proposed change (Gemini)</h4><p>${esc(r.changeSummary)}</p></div>` : ""}
+    <div class="diff"><div class="diff-col before"><div class="diff-h">− current</div><p>${esc(excerpt(r.before))}</p></div><div class="diff-col after"><div class="diff-h">+ proposed</div><p>${esc(excerpt(r.after))}</p></div></div>
+    <div class="fix-actions"><button class="btn btn-sm btn-primary" data-approve="${r.id}">Approve &amp; apply</button><button class="btn btn-sm btn-ghost" data-reject="${r.id}">Dismiss</button></div>`;
+  else if (r.step === 3) panel = `<div class="verify-chip ok"><span class="spinner"></span> applying the approved fix…</div>`;
   else panel = `<div class="verify-chip ok">✓ Completed — document corrected &amp; re-verified</div>`;
   c.innerHTML = `
     <div class="rem-head"><span class="rem-sev" style="background:${sevCol}"></span><div><div class="tr-title">${esc(r.title)}</div><div class="tr-sub">${esc(r.doc_id)} · ${r.severity} severity</div></div></div>
     <div class="stepper">${stepper}</div>
     <div class="rem-panel">${panel}</div>`;
-  c.querySelectorAll("[data-adv]").forEach((b) => (b.onclick = () => { r.step = Math.min(4, r.step + 1); renderActions(); }));
+  c.querySelectorAll("[data-draft]").forEach((b) => (b.onclick = () => previewFix(r)));
   c.querySelectorAll("[data-approve]").forEach((b) => (b.onclick = () => approveRemediation(r)));
-  c.querySelectorAll("[data-reject]").forEach((b) => (b.onclick = () => { STATE.decisionLog.unshift({ doc_id: r.doc_id, action: "dismiss", title: r.title, who: "You", when: new Date().toISOString().slice(0, 10) }); STATE.remediation = STATE.remediation.filter((x) => x.id !== r.id); updateNavBadges(); toast("Dismissed"); renderActions(); }));
+  c.querySelectorAll("[data-reject]").forEach((b) => (b.onclick = () => { void recordDecision(r.doc_id, "dismiss", r.title); STATE.remediation = STATE.remediation.filter((x) => x.id !== r.id); updateNavBadges(); toast("Dismissed"); renderActions(); }));
   return c;
 }
 
+// Ask the backend to draft (not save) an AI correction, then show it for review.
+function previewFix(r) {
+  if (!(API && !STATE.isDemo)) {
+    // offline: show the heuristic suggested fix as the proposed change (no real rewrite)
+    const a = auditFor(r.doc_id);
+    r.before = docFor(r.doc_id)?.body || "";
+    r.after = a?.suggested_fix || "Reviewed and corrected.";
+    r.changeSummary = a?.suggested_fix || "";
+    r.proposedBody = null; r.step = 2; renderActions();
+    return;
+  }
+  r.step = 1; r.loading = true; renderActions();
+  void (async () => {
+    try {
+      const res = await fetch(`${API}/documents/${encodeURIComponent(r.doc_id)}/propose-fix`, { method: "POST", headers: TOKEN ? { "X-Audit-Token": TOKEN } : {} });
+      if (!res.ok) throw new Error("propose");
+      const out = await res.json();
+      r.loading = false;
+      if (out.already_healthy) { toast("Already healthy — nothing to fix"); STATE.remediation = STATE.remediation.filter((x) => x.id !== r.id); updateNavBadges(); renderActions(); return; }
+      r.before = out.current_body; r.after = out.revised_body;
+      r.proposedBody = out.revised_body; r.changeSummary = out.change_summary;
+      r.step = 2; renderActions();
+    } catch { r.loading = false; r.step = 0; toast("Couldn't draft a fix — try editing the document manually"); renderActions(); }
+  })();
+}
+
+// Refresh live audits + corpus WITHOUT rebuilding STATE.remediation (so an
+// in-progress remediation card survives the update).
+async function reloadAuditsAndCorpus() {
+  if (!(API && !STATE.isDemo)) return;
+  try {
+    const [report, docs] = await Promise.all([fetchJSON(`${API}/report`), fetchJSON(`${API}/documents`)]);
+    if (Array.isArray(report.audits)) STATE.audits = report.audits.sort((a, b) => (a.confidence ?? 1) - (b.confidence ?? 1));
+    if (Array.isArray(docs)) STATE.corpus = docs.map((d) => ({ id: d.id, title: d.title, source: d.source, body: d.body, last_updated: d.last_updated, owner: d.owner }));
+    updateNavBadges();
+  } catch { /* keep current state if the refresh fails */ }
+}
+
 function approveRemediation(r) {
+  void recordDecision(r.doc_id, "accept", r.title);
+
+  // Online: save the human-approved rewrite, then re-audit (persisted).
+  if (API && !STATE.isDemo) {
+    if (!r.proposedBody) { previewFix(r); return; }  // draft first if we somehow skipped it
+    r.step = 3; renderActions();
+    void (async () => {
+      try {
+        const res = await fetch(`${API}/documents/${encodeURIComponent(r.doc_id)}/apply-fix`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(TOKEN ? { "X-Audit-Token": TOKEN } : {}) },
+          body: JSON.stringify({ revised_body: r.proposedBody, change_summary: r.changeSummary || "" }),
+        });
+        if (!res.ok) throw new Error("apply");
+        await res.json();
+        await reloadAuditsAndCorpus();
+        r.step = 4;
+        toast(auditFor(r.doc_id)?.status === "healthy"
+          ? "Fix applied — document rewritten & re-verified ✓"
+          : "Fix applied & saved");
+        renderActions();
+      } catch {
+        r.step = 2; renderActions();
+        toast("Couldn't save the fix — check the backend connection");
+      }
+    })();
+    return;
+  }
+
+  // Offline: simulated apply (no backend to rewrite/persist).
   r.step = 3; renderActions();
-  STATE.decisionLog.unshift({ doc_id: r.doc_id, action: "accept", title: r.title, who: "You", when: new Date().toISOString().slice(0, 10) });
   const au = auditFor(r.doc_id);
   setTimeout(() => {
     r.step = 4;
@@ -861,8 +1128,7 @@ function computeImpact(id) {
 
 function showImpact(id, out) {
   out.innerHTML = `<div class="verify-chip"><span class="spinner"></span> tracing impact across knowledge…</div>`;
-  setTimeout(() => {
-    const d = computeImpact(id);
+  const render = (d) => {
     const riskCol = d.risk === "high" ? "var(--red)" : d.risk === "medium" ? "var(--amber)" : "var(--green)";
     const docs = (d.affectedDocs || []).map((x) => `<div class="act-item"><span class="act-rel" style="--c:var(--red)">affected</span><div><div class="act-title">${esc(titleOf(x.id))} <span class="doc-id">${esc(x.id)}</span></div><div class="act-reason">${esc(x.reason)}</div></div></div>`).join("");
     const procs = (d.processes || []).map((p) => `<span class="pill-tag" style="--c:${p.status === "at-risk" ? "var(--red)" : "var(--amber)"}">${esc(p.name)}</span>`).join("");
@@ -870,13 +1136,27 @@ function showImpact(id, out) {
     const actions = (d.actions || []).map((x) => `<li>${esc(x)}</li>`).join("");
     out.innerHTML = `
       <div class="impact-grid">
-        <div class="impact-risk" style="--c:${riskCol}"><div class="muted-sm">Risk level</div><div class="risk-big" style="color:${riskCol}">${d.risk.toUpperCase()}</div></div>
+        <div class="impact-risk" style="--c:${riskCol}"><div class="muted-sm">Risk level</div><div class="risk-big" style="color:${riskCol}">${esc((d.risk || "medium").toUpperCase())}</div></div>
         <div class="panel"><div class="panel-head"><h3>Affected processes</h3></div><div class="chip-row">${procs || "<span class='muted-sm'>none</span>"}</div><div class="panel-head" style="margin-top:14px"><h3>Affected teams</h3></div><div class="chip-row">${teams || "<span class='muted-sm'>none</span>"}</div></div>
       </div>
       <div class="panel"><div class="panel-head"><h3>Affected documents</h3></div>${docs || "<span class='muted-sm'>No other documents affected.</span>"}</div>
       <div class="panel"><div class="panel-head"><h3>Recommended actions</h3></div><ol class="act-steps">${actions}</ol><button class="btn btn-sm btn-primary" id="impact-fix">Start remediation</button></div>`;
     const fix = $("#impact-fix", out); if (fix) fix.onclick = () => { ensureRemediation(id); go("actions"); };
-  }, reduceMotion ? 0 : 700);
+  };
+  if (API && !STATE.isDemo) {
+    void (async () => {
+      try {
+        const d = await fetchJSON(`${API}/impact`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(TOKEN ? { "X-Audit-Token": TOKEN } : {}) },
+          body: JSON.stringify({ doc_id: id }),
+        });
+        render(d);
+      } catch { render(computeImpact(id)); }
+    })();
+  } else {
+    setTimeout(() => render(computeImpact(id)), reduceMotion ? 0 : 700);
+  }
 }
 
 /* ============================================================
@@ -897,7 +1177,7 @@ function renderSettings() {
     const row = $("#conn-row"), url = $("#set-url").value.trim().replace(/\/$/, "");
     if (!url) { row.innerHTML = `<span class="conn-dot" style="background:var(--amber)"></span> No URL — using offline demo data`; return; }
     row.innerHTML = `<span class="spinner"></span> testing…`;
-    try { const r = await fetch(`${url}/healthz`); row.innerHTML = `<span class="conn-dot" style="background:${r.ok ? "var(--green)" : "var(--red)"}"></span> ${r.ok ? "Connected — backend healthy" : "Reachable but unhealthy"}`; }
+    try { const r = await fetch(`${url}/report`, { cache: "no-store" }); row.innerHTML = `<span class="conn-dot" style="background:${r.ok ? "var(--green)" : "var(--red)"}"></span> ${r.ok ? "Connected — backend healthy" : "Reachable but unhealthy"}`; }
     catch { row.innerHTML = `<span class="conn-dot" style="background:var(--red)"></span> Could not reach backend`; }
   };
 }
@@ -913,13 +1193,14 @@ function renderManage() {
         <div class="panel-head"><h3>Add a document</h3></div>
         <div class="dropzone" id="dropzone" role="button" tabindex="0">
           <svg viewBox="0 0 24 24" class="dz-ic"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-          <div class="dz-main">Drop a .txt or .md file here</div>
+          <div class="dz-main">Drop a .txt, .md or .pdf file here</div>
           <div class="dz-sub">or click to browse — it fills the form below</div>
-          <input type="file" id="dz-file" accept=".txt,.md,.markdown,text/plain,text/markdown" hidden />
+          <input type="file" id="dz-file" accept=".txt,.md,.markdown,.pdf,text/plain,text/markdown,application/pdf" hidden />
         </div>
         <div class="field"><label>Title</label><input id="m-title" placeholder="e.g. How to Deploy the Northwind API" /></div>
         <div class="field"><label>Path / source</label><input id="m-source" placeholder="e.g. wiki/engineering/deployment-guide" /></div>
         <div class="field"><label>Owner team(s)</label><input id="m-owner" placeholder="comma-separated — e.g. Platform, SRE" /></div>
+        <div class="field"><label>Point of contact</label><input id="m-poc" placeholder="e.g. Marcus Lee, Platform Lead" /></div>
         <div class="field"><label>Last updated</label><input id="m-updated" type="date" /></div>
         <div class="field"><label>Content</label><textarea id="m-body" rows="7" placeholder="Paste or write the document content…"></textarea></div>
         <div class="form-actions"><button class="btn btn-primary" id="m-add"><span class="btn-glow"></span><span class="btn-label">Add &amp; audit</span></button><button class="btn btn-ghost" id="m-clear">Clear</button></div>
@@ -939,42 +1220,90 @@ function renderManage() {
   dz.addEventListener("drop", (e) => { const f = e.dataTransfer?.files?.[0]; if (f) readDocFile(f); });
 
   $("#m-add").onclick = submitDoc;
-  $("#m-clear").onclick = () => ["m-title", "m-source", "m-owner", "m-updated", "m-body"].forEach((id) => ($("#" + id).value = ""));
+  $("#m-clear").onclick = () => { pendingFile = null; ["m-title", "m-source", "m-owner", "m-poc", "m-updated", "m-body"].forEach((id) => ($("#" + id).value = "")); };
+  $("#m-body").addEventListener("input", () => { pendingFile = null; });
   renderManageList();
 }
 
+let pendingFile = null;
 function readDocFile(f) {
+  pendingFile = f;
+  if (!$("#m-title").value) $("#m-title").value = f.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  if (!$("#m-source").value) $("#m-source").value = "upload/" + f.name;
+  if (/\.pdf$/i.test(f.name) || f.type === "application/pdf") {
+    $("#m-body").value = "";
+    $("#m-body").placeholder = `“${f.name}” ready — its text is extracted on the server when you click Add & audit.`;
+    toast("PDF ready — click Add & audit");
+    return;
+  }
   const r = new FileReader();
   r.onload = () => {
     $("#m-body").value = String(r.result || "");
-    if (!$("#m-title").value) $("#m-title").value = f.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    if (!$("#m-source").value) $("#m-source").value = "upload/" + f.name;
+    pendingFile = null; // text was inlined; send as body
     toast("File loaded — review and add");
   };
   r.readAsText(f);
 }
 
-function submitDoc() {
+async function submitDoc() {
+  const online = API && !STATE.isDemo;
   const title = $("#m-title").value.trim();
   const body = $("#m-body").value.trim();
+  const source = $("#m-source").value.trim();
+  const owner = $("#m-owner").value.trim();
+  const poc = $("#m-poc").value.trim();
+  const updated = $("#m-updated").value;
+
+  if (online) {
+    if (!pendingFile && (!title || !body)) { toast("Title and content (or a file) are required"); return; }
+    const fd = new FormData();
+    if (title) fd.append("title", title);
+    if (source) fd.append("source", source);
+    if (owner) fd.append("owner", owner);
+    if (poc) fd.append("poc", poc);
+    if (updated) fd.append("last_updated", updated);
+    if (pendingFile) fd.append("file", pendingFile);
+    else fd.append("body", body);
+    const overlay = $("#scan-overlay"), sub = $("#scan-sub");
+    overlay.classList.add("on"); sub.textContent = "uploading & auditing with Gemini…";
+    try {
+      const res = await fetch(`${API}/documents`, { method: "POST", headers: TOKEN ? { "X-Audit-Token": TOKEN } : {}, body: fd });
+      if (!res.ok) throw new Error("upload");
+      const out = await res.json();
+      pendingFile = null;
+      await loadData();
+      overlay.classList.remove("on");
+      toast(`Added — audited ${STATUS[out.audit?.status]?.label || "done"}`);
+      renderManage();
+      if (out.document?.id) openDoc(out.document.id);
+    } catch {
+      overlay.classList.remove("on");
+      toast("Upload failed — check the backend connection");
+    }
+    return;
+  }
+
+  // offline: localStorage + client-side heuristic (PDF needs the backend)
+  if (pendingFile && (/\.pdf$/i.test(pendingFile.name) || pendingFile.type === "application/pdf")) {
+    toast("PDF upload needs the backend — paste text in offline mode"); return;
+  }
   if (!title || !body) { toast("Title and content are required"); return; }
-  const id = slugify($("#m-source").value.trim() || title);
+  const id = slugify(source || title);
   if (STATE.corpus.some((d) => d.id === id)) { toast("A document with that path already exists"); return; }
-  const owner = $("#m-owner").value.split(",").map((s) => s.trim()).filter(Boolean);
   const doc = {
     id, title,
-    source: $("#m-source").value.trim() || id,
+    source: source || id,
     body,
-    last_updated: $("#m-updated").value || new Date().toISOString().slice(0, 10),
-    owner,
+    last_updated: updated || new Date().toISOString().slice(0, 10),
+    owner: { team: owner, poc },
   };
   addUserDoc(doc);
 }
 
 function addUserDoc(doc) {
   const docs = loadUserDocs(); docs.push(doc); saveUserDocs(docs);
-  STATE.corpus.push({ id: doc.id, title: doc.title, source: doc.source, body: doc.body, last_updated: doc.last_updated });
-  if (doc.owner?.length) STATE.demo.teams[doc.id] = doc.owner;
+  STATE.corpus.push({ id: doc.id, title: doc.title, source: doc.source, body: doc.body, last_updated: doc.last_updated, owner: doc.owner });
+  if (doc.owner?.team) STATE.demo.teams[doc.id] = String(doc.owner.team).split(",").map((s) => s.trim()).filter(Boolean);
   const audit = heuristicAudit(doc);
   STATE.audits.push(audit);
   STATE.audits.sort((a, b) => (a.confidence ?? 1) - (b.confidence ?? 1));
@@ -990,7 +1319,17 @@ function addUserDoc(doc) {
   }, reduceMotion ? 0 : 1300);
 }
 
-function deleteUserDoc(id) {
+async function deleteUserDoc(id) {
+  if (API && !STATE.isDemo) {
+    try {
+      const res = await fetch(`${API}/documents/${encodeURIComponent(id)}`, { method: "DELETE", headers: TOKEN ? { "X-Audit-Token": TOKEN } : {} });
+      if (!res.ok) throw new Error("del");
+      toast("Document deleted");
+      await loadData();
+      renderManage();
+    } catch { toast("Delete failed — check the backend connection"); }
+    return;
+  }
   saveUserDocs(loadUserDocs().filter((d) => d.id !== id));
   STATE.corpus = STATE.corpus.filter((d) => d.id !== id);
   STATE.audits = STATE.audits.filter((a) => a.doc_id !== id);
@@ -1002,18 +1341,34 @@ function deleteUserDoc(id) {
 
 function renderManageList() {
   const list = $("#m-list"); if (!list) return;
+  const online = API && !STATE.isDemo;
   const mine = new Set(loadUserDocs().map((d) => d.id));
-  $("#m-count").textContent = `${STATE.corpus.length} total · ${mine.size} added by you`;
+  const canDelete = (id) => online || mine.has(id);
+  $("#m-count").textContent = online
+    ? `${STATE.corpus.length} documents · live`
+    : `${STATE.corpus.length} total · ${mine.size} added by you`;
   list.innerHTML = "";
   STATE.corpus.forEach((d) => {
     const a = auditFor(d.id);
+    const tag = (!online && mine.has(d.id)) ? `<span class="mr-tag">added</span>` : "";
+    const team = ownerTeamOf(d.id);
+    const meta = [`updated ${esc(d.last_updated || "—")}`, team ? esc(team) : "unassigned", pocOf(d.id) ? esc(pocOf(d.id)) : ""].filter(Boolean).join(" · ");
     const row = el("div", "manage-row", `
-      <div class="mr-main"><div class="d-title">${esc(d.title)}${mine.has(d.id) ? `<span class="mr-tag">added</span>` : ""}</div><div class="d-src">${esc(d.source || d.id)}</div></div>
+      <div class="mr-main"><div class="d-title">${esc(d.title)}${tag}</div><div class="d-src">${esc(d.source || d.id)}</div><div class="mr-meta">${meta}</div></div>
       ${miniBadge(a?.status || "uncertain")}
-      <div class="mr-actions"><button class="btn btn-sm btn-ghost mr-open">Open</button>${mine.has(d.id) ? `<button class="btn btn-sm btn-ghost mr-del">Delete</button>` : ""}</div>`);
+      <div class="mr-actions"><button class="btn btn-sm btn-ghost mr-open">Open</button>${online ? `<button class="btn btn-sm btn-ghost mr-audit">Re-audit</button>` : ""}${canDelete(d.id) ? `<button class="btn btn-sm btn-ghost mr-del">Delete</button>` : ""}</div>`);
     row.querySelector(".mr-open").onclick = () => openDoc(d.id);
     const del = row.querySelector(".mr-del");
     if (del) del.onclick = () => deleteUserDoc(d.id);
+    const reaud = row.querySelector(".mr-audit");
+    if (reaud) reaud.onclick = async () => {
+      reaud.disabled = true; reaud.textContent = "…";
+      try {
+        const res = await fetch(`${API}/documents/${encodeURIComponent(d.id)}/audit`, { method: "POST", headers: TOKEN ? { "X-Audit-Token": TOKEN } : {} });
+        if (!res.ok) throw new Error("audit");
+        await loadData(); renderManage(); toast("Re-audited");
+      } catch { reaud.disabled = false; reaud.textContent = "Re-audit"; toast("Re-audit failed"); }
+    };
     list.append(row);
   });
 }

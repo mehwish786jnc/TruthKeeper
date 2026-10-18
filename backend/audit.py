@@ -136,6 +136,16 @@ def _heuristic_audit(doc: dict[str, Any]) -> AuditResult:
 # --------------------------------------------------------------------------- #
 def _parse(raw: str, doc: dict[str, Any], model_used: str) -> AuditResult:
     data = json.loads(raw)
+    # Models legitimately return null for optional fields (e.g. suggested_fix on a
+    # healthy doc). Drop nulls so Pydantic uses the field defaults instead of
+    # failing validation (which would silently drop us to the heuristic floor).
+    if isinstance(data, dict):
+        data = {k: v for k, v in data.items() if v is not None}
+        if isinstance(data.get("contradictions"), list):
+            data["contradictions"] = [
+                {k: v for k, v in c.items() if v is not None}
+                for c in data["contradictions"] if isinstance(c, dict)
+            ]
     result = AuditResult(**data)
     result.doc_id = doc["id"]
     result.title = doc["title"]

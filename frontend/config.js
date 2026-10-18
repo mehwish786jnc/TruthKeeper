@@ -3,7 +3,7 @@
 // Leave CLOUD_RUN_URL empty ("") to force offline demo mode (sample data).
 window.CONFIG = {
   // e.g. "https://truthkeeper-api-xxxxx-uc.a.run.app"
-  CLOUD_RUN_URL: "",
+  CLOUD_RUN_URL: "https://truthkeeper-api-815359665978.us-central1.run.app",
 
   // Only needed if the backend enforces AUDIT_TOKEN on POST /audit.
   AUDIT_TOKEN: "",
