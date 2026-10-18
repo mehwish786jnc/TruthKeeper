@@ -26,3 +26,10 @@ firebase-debug.log
 # Python venv
 .venv/
 venv/
+
+# Internal planning / prep docs (kept locally, not published)
+/plan.md
+/task.md
+/MVP_PLAN.md
+/docs/demo-script.md
+/docs/pitch-deck-notes.md
